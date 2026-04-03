@@ -1,0 +1,66 @@
+# Vendor (cloned open source repos - too large for git)
+vendor/
+
+# Data (MRI files, models, etc.)
+data/sample/
+data/raw/
+data/processed/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+
+# Model weights
+*.pth
+*.pt
+*.onnx
+*.h5
+*.hdf5
+*.pkl
+*.joblib
+
+# Medical imaging temp files
+*.nii
+*.nii.gz
+*.dcm
+*.mgz
+*.mgh
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node.js (frontend)
+node_modules/
+.next/
+out/
+.env.local
+.env*.local
+
+# Docker
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Coverage
+.coverage
+htmlcov/
+.pytest_cache/

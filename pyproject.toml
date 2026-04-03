@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "synapse-d"
+version = "0.1.0"
+description = "Brain Digital Twin Platform - Structural MRI-based brain development and degeneration prediction"
+readme = "README.md"
+license = {text = "Proprietary"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Synapse-D Team"},
+]
+
+dependencies = [
+    # Core
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "pandas>=2.0",
+    "nibabel>=5.0",
+    # API
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.27",
+    "celery[redis]>=5.3",
+    "python-multipart>=0.0.6",
+    # ML/DL
+    "torch>=2.1",
+    "monai>=1.3",
+    # Neuroimaging
+    "antspyx>=0.4",
+    "nilearn>=0.10",
+    # Utilities
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    "loguru>=0.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.26",
+    "ruff>=0.2",
+]
+gpu = [
+    "HD-BET",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

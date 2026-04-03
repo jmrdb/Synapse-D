@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  # FastAPI Backend
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../data:/app/data
+      - ../src:/app/src
+    environment:
+      - SYNAPSE_DEVICE=cpu
+      - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
+      - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      - redis
+
+  # Celery Worker (async pipeline processing)
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A synapse_d.api.tasks worker --loglevel=info
+    volumes:
+      - ../data:/app/data
+      - ../src:/app/src
+    environment:
+      - SYNAPSE_DEVICE=cpu
+      - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
+      - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      - redis
+
+  # Redis (message broker + result backend)
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  # Frontend (Next.js)
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api

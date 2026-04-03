@@ -1,0 +1,125 @@
+/**
+ * MRI file upload component with drag-and-drop support.
+ * Handles T1-weighted NIfTI file upload to the backend.
+ */
+
+"use client";
+
+import { useCallback, useState } from "react";
+import { uploadMRI, startAnalysis, getResults, type AnalysisResult } from "@/lib/api";
+
+interface MRIUploaderProps {
+  onAnalysisComplete: (result: AnalysisResult) => void;
+}
+
+export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
+  const [status, setStatus] = useState<"idle" | "uploading" | "analyzing" | "done" | "error">("idle");
+  const [message, setMessage] = useState("");
+  const [age, setAge] = useState<string>("");
+  const [dragOver, setDragOver] = useState(false);
+
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.name.endsWith(".nii") && !file.name.endsWith(".nii.gz")) {
+      setStatus("error");
+      setMessage("NIfTI (.nii / .nii.gz) 파일만 업로드 가능합니다.");
+      return;
+    }
+
+    try {
+      // Upload
+      setStatus("uploading");
+      setMessage(`업로드 중: ${file.name}`);
+      const upload = await uploadMRI(file);
+      setMessage(`업로드 완료 (${upload.size_mb} MB). 분석 시작...`);
+
+      // Analyze
+      setStatus("analyzing");
+      const chronoAge = age ? parseFloat(age) : undefined;
+      const job = await startAnalysis(upload.subject_id, chronoAge);
+      setMessage("전처리 파이프라인 실행 중...");
+
+      // Get results
+      const result = await getResults(job.job_id);
+      setStatus("done");
+      setMessage("분석 완료");
+      onAnalysisComplete(result);
+    } catch (err) {
+      setStatus("error");
+      setMessage(`오류: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
+    }
+  }, [age, onAnalysisComplete]);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  }, [handleFile]);
+
+  return (
+    <div style={{ maxWidth: "500px", margin: "0 auto" }}>
+      {/* Age input */}
+      <div style={{ marginBottom: "12px" }}>
+        <label style={{ fontSize: "14px", color: "#888" }}>
+          실제 나이 (선택, Brain Age Gap 계산용)
+        </label>
+        <input
+          type="number"
+          value={age}
+          onChange={(e) => setAge(e.target.value)}
+          placeholder="예: 45"
+          style={{
+            width: "100%",
+            padding: "8px 12px",
+            marginTop: "4px",
+            border: "1px solid #333",
+            borderRadius: "6px",
+            background: "#1a1a2e",
+            color: "white",
+            fontSize: "14px",
+          }}
+        />
+      </div>
+
+      {/* Drop zone */}
+      <div
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => {
+          const input = document.createElement("input");
+          input.type = "file";
+          input.accept = ".nii,.nii.gz";
+          input.onchange = (e) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (file) handleFile(file);
+          };
+          input.click();
+        }}
+        style={{
+          border: `2px dashed ${dragOver ? "#4f9cf7" : "#333"}`,
+          borderRadius: "12px",
+          padding: "40px 20px",
+          textAlign: "center",
+          cursor: "pointer",
+          background: dragOver ? "rgba(79,156,247,0.1)" : "transparent",
+          transition: "all 0.2s",
+        }}
+      >
+        <div style={{ fontSize: "32px", marginBottom: "8px" }}>
+          {status === "uploading" ? "..." : status === "analyzing" ? "..." : ""}
+        </div>
+        <div style={{ fontSize: "14px", color: "#888" }}>
+          {status === "idle" && "T1w MRI 파일을 드래그하거나 클릭하여 업로드"}
+          {status === "uploading" && message}
+          {status === "analyzing" && message}
+          {status === "done" && message}
+          {status === "error" && <span style={{ color: "#ff6b6b" }}>{message}</span>}
+        </div>
+        <div style={{ fontSize: "12px", color: "#555", marginTop: "8px" }}>
+          지원 형식: .nii, .nii.gz (T1-weighted MRI)
+        </div>
+      </div>
+    </div>
+  );
+}
