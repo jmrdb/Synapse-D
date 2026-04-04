@@ -49,6 +49,7 @@ class MorphometryResult:
 
     subject_id: str = ""
     total_brain_volume_cm3: float = 0.0
+    icv_cm3: float = 0.0  # Intracranial Volume — key for ethnicity/sex normalization
     subcortical: list[RegionMeasure] = field(default_factory=list)
     cortical_lh: list[RegionMeasure] = field(default_factory=list)
     cortical_rh: list[RegionMeasure] = field(default_factory=list)
@@ -103,6 +104,42 @@ def parse_aseg_stats(stats_path: Path) -> list[RegionMeasure]:
 
     logger.info(f"Parsed {len(regions)} subcortical regions from aseg.stats")
     return regions
+
+
+def parse_icv_from_aseg(stats_path: Path) -> float:
+    """Extract Estimated Total Intracranial Volume (eTIV) from aseg.stats header.
+
+    FreeSurfer/FastSurfer stores ICV in the header comment lines as:
+    # Measure EstimatedTotalIntraCranialVol, eTIV, ... <value>, mm^3
+
+    ICV is critical for normalizing volumetric measurements across
+    individuals of different head sizes, which largely accounts for
+    sex and ethnicity differences in absolute brain volumes
+    (Liu et al., 2025, PMID: 40756770).
+
+    Args:
+        stats_path: Path to aseg.stats file.
+
+    Returns:
+        ICV in mm3, or 0.0 if not found.
+    """
+    if not stats_path.exists():
+        return 0.0
+
+    for line in stats_path.read_text().splitlines():
+        if "EstimatedTotalIntraCranialVol" in line or "eTIV" in line:
+            # Format: # Measure EstimatedTotalIntraCranialVol, eTIV, ..., <value>, mm^3
+            parts = line.split(",")
+            for part in reversed(parts):
+                part = part.strip().rstrip("mm^3").strip()
+                try:
+                    icv = float(part)
+                    if icv > 100000:  # Sanity check: ICV > 100 cm3
+                        logger.info(f"Parsed ICV: {icv:.0f} mm³ ({icv/1000:.1f} cm³)")
+                        return icv
+                except ValueError:
+                    continue
+    return 0.0
 
 
 def parse_aparc_stats(stats_path: Path) -> list[RegionMeasure]:
@@ -206,17 +243,22 @@ def extract_morphometry(
             subcortical = parse_aseg_stats(aseg_path)
             cortical_lh = parse_aparc_stats(lh_aparc)
             cortical_rh = parse_aparc_stats(rh_aparc)
+            icv_mm3 = parse_icv_from_aseg(aseg_path)
+            icv_cm3 = icv_mm3 / 1000.0
 
             # Compute total brain volume from subcortical volumes
             total_vol = sum(r.volume_mm3 for r in subcortical)
             total_vol_cm3 = total_vol / 1000.0
 
-            # Build summary with key clinical metrics
-            summary = _build_summary(subcortical, cortical_lh, cortical_rh, total_vol_cm3)
+            # Build summary with key clinical metrics + ICV normalization
+            summary = _build_summary(
+                subcortical, cortical_lh, cortical_rh, total_vol_cm3, icv_mm3
+            )
 
             return MorphometryResult(
                 subject_id=subject_id,
                 total_brain_volume_cm3=total_vol_cm3,
+                icv_cm3=icv_cm3,
                 subcortical=subcortical,
                 cortical_lh=cortical_lh,
                 cortical_rh=cortical_rh,
@@ -231,45 +273,94 @@ def extract_morphometry(
     return MorphometryResult(subject_id=subject_id)
 
 
+# Population mean ICV for normalization reference (mm3)
+# Source: Bethlehem et al., Nature 2022 (BrainChart consortium)
+_MEAN_ICV_MM3 = 1_500_000.0  # ~1500 cm3
+
+
+def _icv_normalize(raw_mm3: float, icv_mm3: float) -> float:
+    """Normalize a volume measurement by ICV.
+
+    Formula: adjusted = raw / ICV * mean_ICV
+    This removes head-size variation that accounts for most
+    sex and ethnicity differences in absolute volumes.
+    (Liu et al., 2025, PMID: 40756770)
+
+    Note: Cortical thickness does NOT need ICV normalization —
+    it is already the most ethnicity-stable biomarker
+    (Wisch et al., 2025, PMID: 39868891).
+    """
+    if icv_mm3 <= 0:
+        return raw_mm3
+    return raw_mm3 / icv_mm3 * _MEAN_ICV_MM3
+
+
 def _build_summary(
     subcortical: list[RegionMeasure],
     cortical_lh: list[RegionMeasure],
     cortical_rh: list[RegionMeasure],
     total_vol_cm3: float,
+    icv_mm3: float = 0.0,
 ) -> dict:
     """Build clinical summary from regional measurements.
 
-    Extracts key biomarkers: hippocampal volume, ventricular volume,
-    mean cortical thickness for key regions.
+    When ICV is available, provides both raw and ICV-normalized volumes.
+    ICV normalization removes head-size-driven sex/ethnicity bias from
+    volumetric measurements (Liu et al., 2025).
+    Cortical thickness is NOT ICV-normalized (Wisch et al., 2025).
     """
     sub_map = {r.name: r for r in subcortical}
+    icv_cm3 = icv_mm3 / 1000.0
+    has_icv = icv_mm3 > 0
+
     summary: dict = {
         "total_brain_volume_cm3": round(total_vol_cm3, 1),
         "source": "fastsurfer",
     }
 
+    if has_icv:
+        summary["icv_cm3"] = round(icv_cm3, 1)
+        summary["brain_volume_icv_ratio"] = round(total_vol_cm3 / icv_cm3, 4) if icv_cm3 > 0 else None
+        summary["total_brain_volume_normalized_cm3"] = round(
+            _icv_normalize(total_vol_cm3 * 1000, icv_mm3) / 1000, 1
+        )
+        summary["normalization_method"] = "ICV"
+        logger.info(f"ICV normalization applied: ICV={icv_cm3:.1f} cm³, "
+                    f"raw={total_vol_cm3:.1f} → normalized="
+                    f"{summary['total_brain_volume_normalized_cm3']:.1f} cm³")
+
     # Hippocampal volumes (AD biomarker)
     lh = sub_map.get("Left-Hippocampus")
     rh = sub_map.get("Right-Hippocampus")
     if lh and rh:
-        summary["hippocampus_total_mm3"] = round(lh.volume_mm3 + rh.volume_mm3, 0)
+        raw_hippo = lh.volume_mm3 + rh.volume_mm3
+        summary["hippocampus_total_mm3"] = round(raw_hippo, 0)
         summary["hippocampus_left_mm3"] = round(lh.volume_mm3, 0)
         summary["hippocampus_right_mm3"] = round(rh.volume_mm3, 0)
+        if has_icv:
+            summary["hippocampus_total_normalized_mm3"] = round(
+                _icv_normalize(raw_hippo, icv_mm3), 0
+            )
 
     # Ventricular volumes (hydrocephalus / atrophy indicator)
     lv_l = sub_map.get("Left-Lateral-Ventricle")
     lv_r = sub_map.get("Right-Lateral-Ventricle")
     if lv_l and lv_r:
-        summary["ventricle_total_mm3"] = round(lv_l.volume_mm3 + lv_r.volume_mm3, 0)
+        raw_vent = lv_l.volume_mm3 + lv_r.volume_mm3
+        summary["ventricle_total_mm3"] = round(raw_vent, 0)
+        if has_icv:
+            summary["ventricle_total_normalized_mm3"] = round(
+                _icv_normalize(raw_vent, icv_mm3), 0
+            )
 
-    # Mean cortical thickness for key regions
+    # Mean cortical thickness — NO ICV normalization needed (ethnicity-stable)
     all_cortical = cortical_lh + cortical_rh
     key_regions = [r for r in all_cortical if r.name in _KEY_CORTICAL and r.thickness_mm]
     if key_regions:
         thicknesses = [r.thickness_mm for r in key_regions if r.thickness_mm is not None]
         summary["mean_cortical_thickness_mm"] = round(float(np.mean(thicknesses)), 3)
 
-    # Per-region thickness for radar chart
+    # Per-region thickness for radar chart (no ICV normalization)
     region_thickness = {}
     for r in cortical_lh:
         if r.name in _KEY_CORTICAL and r.thickness_mm is not None:
@@ -280,13 +371,20 @@ def _build_summary(
     if region_thickness:
         summary["cortical_thickness_by_region"] = region_thickness
 
-    # Per-region subcortical volumes for bar chart
+    # Per-region subcortical volumes (both raw and ICV-normalized)
     region_volumes = {}
+    region_volumes_normalized = {}
     for name in _KEY_SUBCORTICAL:
         r = sub_map.get(name)
         if r:
             region_volumes[name] = round(r.volume_mm3, 0)
+            if has_icv:
+                region_volumes_normalized[name] = round(
+                    _icv_normalize(r.volume_mm3, icv_mm3), 0
+                )
     if region_volumes:
         summary["subcortical_volumes"] = region_volumes
+    if region_volumes_normalized:
+        summary["subcortical_volumes_normalized"] = region_volumes_normalized
 
     return summary

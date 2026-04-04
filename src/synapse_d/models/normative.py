@@ -167,9 +167,12 @@ def compare_normative(
 
     result = NormativeResult(subject_id=subject_id, age=age, sex=sex)
     scores = []
+    icv_available = "normalization_method" in morphometrics
 
-    # Total brain volume
-    vol = morphometrics.get("total_brain_volume_cm3")
+    # Total brain volume — use ICV-normalized value if available
+    # ICV normalization removes sex/ethnicity head-size bias (Liu et al., 2025)
+    vol_key = "total_brain_volume_normalized_cm3" if icv_available else "total_brain_volume_cm3"
+    vol = morphometrics.get(vol_key) or morphometrics.get("total_brain_volume_cm3")
     if vol:
         sex_norms = _BRAIN_VOLUME_NORMS.get(sex, _BRAIN_VOLUME_NORMS["M"])
         mean, std = _get_norm(sex_norms, age)
@@ -181,8 +184,9 @@ def compare_normative(
             interpretation=_interpret_z(z, "brain volume"),
         ))
 
-    # Hippocampal volume
-    hippo = morphometrics.get("hippocampus_total_mm3")
+    # Hippocampal volume — use ICV-normalized if available
+    hippo_key = "hippocampus_total_normalized_mm3" if icv_available else "hippocampus_total_mm3"
+    hippo = morphometrics.get(hippo_key) or morphometrics.get("hippocampus_total_mm3")
     if hippo:
         sex_norms = _HIPPOCAMPUS_NORMS.get(sex, _HIPPOCAMPUS_NORMS["M"])
         mean, std = _get_norm(sex_norms, age)
@@ -194,7 +198,7 @@ def compare_normative(
             interpretation=_interpret_z(z, "hippocampal volume"),
         ))
 
-    # Mean cortical thickness
+    # Mean cortical thickness — NO ICV normalization (ethnicity-stable per Wisch 2025)
     thickness = morphometrics.get("mean_cortical_thickness_mm")
     if thickness:
         mean, std = _get_norm(_CORTICAL_THICKNESS_NORMS, age)
@@ -223,6 +227,7 @@ def compare_normative(
                 for s in scores
             ],
             "overall_z_mean": round(float(np.mean(z_values)), 2),
+            "icv_normalized": icv_available,
         }
         logger.info(f"[{subject_id}] Normative comparison: "
                     f"{len(scores)} metrics, mean z={np.mean(z_values):.2f}")

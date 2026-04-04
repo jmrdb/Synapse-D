@@ -61,6 +61,7 @@ def run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
             "registered": str(preproc_result.registered) if preproc_result.registered else None,
             "segmentation": str(preproc_result.segmentation) if preproc_result.segmentation else None,
             "morphometrics": preproc_result.morphometrics,
+            "scanner_info": preproc_result.scanner_info,
             "errors": warnings,
         },
     }

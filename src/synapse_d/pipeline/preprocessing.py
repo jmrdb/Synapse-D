@@ -49,6 +49,7 @@ class PreprocessingResult:
     registered: Path | None = None
     segmentation: Path | None = None
     morphometrics: dict = field(default_factory=dict)
+    scanner_info: dict = field(default_factory=dict)
     success: bool = False
     used_fallback: bool = False
     errors: list[str] = field(default_factory=list)
@@ -121,6 +122,11 @@ class PreprocessingPipeline:
         self._used_fallback = False
         logger.info(f"[{subject_id}] Starting preprocessing pipeline")
         logger.info(f"[{subject_id}] Input: {t1_path}")
+
+        # Extract scanner metadata (for future harmonization)
+        from synapse_d.utils.scanner import extract_scanner_info
+        scanner = extract_scanner_info(t1_path)
+        result.scanner_info = scanner.to_dict()
 
         # Validate input
         try:
