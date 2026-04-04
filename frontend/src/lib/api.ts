@@ -47,6 +47,11 @@ export interface AnalysisResult {
       predicted_age: number;
       confidence: number;
       brain_age_gap: number | null;
+    } | {
+      blocked: true;
+      reason: string;
+    } | {
+      error: string;
     };
     normative?: {
       scores?: Array<{

@@ -59,7 +59,7 @@ def run_pipeline(
     if preproc_result.used_fallback:
         warnings.insert(0, "FALLBACK: Approximate brain extraction used (HD-BET not available)")
 
-    tier = preproc_result.resolution_info.get("tier", "full")
+    tier = preproc_result.resolution_info.get("tier", "basic")  # fail-safe default
 
     result = {
         "preprocessing": {

@@ -110,7 +110,7 @@ def detect_resolution(
     Returns:
         ResolutionInfo with tier, available/blocked features, and warnings.
     """
-    if isinstance(modality, str):
+    if isinstance(modality, str) and not isinstance(modality, Modality):
         modality = _detect_modality(modality, nifti_path)
 
     try:
@@ -123,7 +123,17 @@ def detect_resolution(
 
     max_dim = max(voxel_size)
     min_dim = min(voxel_size)
-    is_iso = (max_dim / min_dim) < 1.5 if min_dim > 0 else False
+
+    # Validate voxel dimensions
+    if max_dim <= 0 or min_dim <= 0:
+        logger.error(f"Invalid voxel size {voxel_size} from {nifti_path}")
+        return ResolutionInfo(
+            voxel_size=voxel_size,
+            tier=AnalysisTier.BASIC,
+            warnings=[f"Invalid voxel dimensions: {voxel_size}"],
+        )
+
+    is_iso = (max_dim / min_dim) < 1.5
 
     # Determine tier
     tier = _classify_tier(max_dim, modality)
@@ -182,7 +192,9 @@ def _gate_features(
     blocked = []
     warnings = []
 
-    is_t1 = modality == Modality.T1 or modality == Modality.UNKNOWN
+    is_t1 = modality in (Modality.T1, Modality.UNKNOWN)
+    if modality == Modality.UNKNOWN:
+        warnings.append("모달리티를 자동 감지하지 못했습니다. T1으로 가정하여 처리합니다.")
 
     if tier == AnalysisTier.FULL:
         available = ["brain_extraction", "segmentation", "volumetrics"]

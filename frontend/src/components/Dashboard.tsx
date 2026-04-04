@@ -50,8 +50,8 @@ export default function Dashboard() {
         {/* Summary Cards */}
         {result?.result && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-            {/* Brain Age Card */}
-            {brainAge && (
+            {/* Brain Age Card — only if not blocked */}
+            {brainAge && !blockedBrainAge && "predicted_age" in brainAge && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Predicted Brain Age</div>
                 <div style={cardValueStyle}>
@@ -64,7 +64,7 @@ export default function Dashboard() {
             )}
 
             {/* Brain Age Gap Card */}
-            {brainAge?.brain_age_gap != null && (
+            {brainAge && !blockedBrainAge && brainAge.brain_age_gap != null && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Brain Age Gap</div>
                 <div style={{
@@ -144,7 +144,7 @@ export default function Dashboard() {
                 {" · "}
                 {resolution?.modality}
               </span>
-              {resolution?.blocked_features?.length > 0 && (
+              {(resolution?.blocked_features?.length ?? 0) > 0 && (
                 <div style={{ fontSize: "11px", color: "#ff8787", marginTop: "2px" }}>
                   차단: {resolution.blocked_features.join(", ")}
                 </div>
