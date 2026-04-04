@@ -16,7 +16,7 @@ services:
     depends_on:
       - redis
 
-  # Celery Worker (async pipeline processing)
+  # Celery Worker (CPU — Mac Silicon / x86 compatible)
   worker:
     build:
       context: ..
@@ -26,19 +26,18 @@ services:
       - ../data:/app/data
       - ../src:/app/src
     environment:
-      - SYNAPSE_DEVICE=${SYNAPSE_DEVICE:-cpu}
+      - SYNAPSE_DEVICE=cpu
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
       - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
     depends_on:
       - redis
-    # GPU 사용 시: docker compose --profile gpu up
-    profiles: ["cpu", ""]
 
-  # Celery Worker (GPU variant)
+  # Celery Worker (GPU — Linux + NVIDIA only)
+  # Usage: docker compose --profile gpu up
   worker-gpu:
     build:
       context: ..
-      dockerfile: docker/Dockerfile
+      dockerfile: docker/Dockerfile.gpu
     command: celery -A synapse_d.api.tasks:celery_app worker --loglevel=info --concurrency=1
     volumes:
       - ../data:/app/data
