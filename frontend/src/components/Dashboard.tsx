@@ -20,6 +20,9 @@ export default function Dashboard() {
   const normative = result?.result?.normative;
   const niftiUrl = result?.result?.preprocessing?.brain_extracted_url;
   const usedFallback = result?.result?.preprocessing?.used_fallback;
+  const resolution = result?.result?.preprocessing?.resolution;
+  const tier = resolution?.tier as string | undefined;
+  const blockedBrainAge = result?.result?.brain_age && "blocked" in result.result.brain_age;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "white", padding: "24px" }}>
@@ -112,7 +115,59 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Morphometry Charts (subcortical volumes, z-scores, cortical thickness) */}
+        {/* Resolution Tier Badge */}
+        {tier && (
+          <div style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "12px",
+            background: "#1a1a2e",
+            borderRadius: "8px",
+            padding: "12px 16px",
+            border: `1px solid ${tier === "full" ? "#51cf6633" : tier === "standard" ? "#ffd43b33" : "#ff6b6b33"}`,
+          }}>
+            <span style={{
+              padding: "4px 10px",
+              borderRadius: "4px",
+              fontSize: "11px",
+              fontWeight: 700,
+              textTransform: "uppercase",
+              background: tier === "full" ? "#51cf66" : tier === "standard" ? "#ffd43b" : "#ff6b6b",
+              color: "#000",
+            }}>
+              {tier}
+            </span>
+            <div>
+              <span style={{ fontSize: "13px", color: "#ccc" }}>
+                {resolution?.max_voxel_dim_mm?.toFixed(1)}mm
+                {resolution?.is_isotropic ? " isotropic" : " anisotropic"}
+                {" · "}
+                {resolution?.modality}
+              </span>
+              {resolution?.blocked_features?.length > 0 && (
+                <div style={{ fontSize: "11px", color: "#ff8787", marginTop: "2px" }}>
+                  차단: {resolution.blocked_features.join(", ")}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Blocked Brain Age notice */}
+        {blockedBrainAge && (
+          <div style={{
+            background: "rgba(255,107,107,0.08)",
+            border: "1px solid #ff6b6b22",
+            borderRadius: "8px",
+            padding: "12px",
+          }}>
+            <div style={{ fontSize: "13px", color: "#ff8787" }}>
+              Brain Age 예측이 차단되었습니다: {(result?.result?.brain_age as any)?.reason}
+            </div>
+          </div>
+        )}
+
+        {/* Morphometry Charts */}
         {result && <MorphometryCharts result={result} />}
 
         {/* Fallback Warning */}

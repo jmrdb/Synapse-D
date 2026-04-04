@@ -59,6 +59,8 @@ def run_pipeline(
     if preproc_result.used_fallback:
         warnings.insert(0, "FALLBACK: Approximate brain extraction used (HD-BET not available)")
 
+    tier = preproc_result.resolution_info.get("tier", "full")
+
     result = {
         "preprocessing": {
             "success": preproc_result.success,
@@ -68,11 +70,13 @@ def run_pipeline(
             "segmentation": str(preproc_result.segmentation) if preproc_result.segmentation else None,
             "morphometrics": preproc_result.morphometrics,
             "scanner_info": preproc_result.scanner_info,
+            "resolution": preproc_result.resolution_info,
             "errors": warnings,
         },
     }
 
-    if preproc_result.brain_extracted:
+    # Step 2: Brain Age — FULL and STANDARD only (BASIC: MAE 7-10yr, unreliable)
+    if preproc_result.brain_extracted and tier != "basic":
         try:
             predictor = BrainAgePredictor()
             age_result = predictor.predict(
@@ -91,6 +95,11 @@ def run_pipeline(
         except Exception as e:
             logger.error(f"Brain age prediction failed: {e}")
             result["brain_age"] = {"error": "Brain age prediction failed"}
+    elif tier == "basic":
+        result["brain_age"] = {
+            "blocked": True,
+            "reason": "해상도 부족 (>3mm): Brain Age 예측은 1.5mm 이하 T1에서만 제공",
+        }
 
     # Step 3: Normative comparison (if age provided and morphometrics available)
     if chronological_age is not None and preproc_result.morphometrics:

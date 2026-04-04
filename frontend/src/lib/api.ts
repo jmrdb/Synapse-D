@@ -23,6 +23,15 @@ export interface AnalysisResult {
       registered_url?: string;
       segmentation_url?: string;
       used_fallback?: boolean;
+      resolution?: {
+        tier: "full" | "standard" | "basic";
+        max_voxel_dim_mm: number;
+        is_isotropic: boolean;
+        modality: string;
+        available_features: string[];
+        blocked_features: string[];
+        warnings: string[];
+      };
       morphometrics: {
         total_brain_volume_cm3?: number;
         hippocampus_total_mm3?: number;

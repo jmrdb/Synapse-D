@@ -50,6 +50,7 @@ class PreprocessingResult:
     segmentation: Path | None = None
     morphometrics: dict = field(default_factory=dict)
     scanner_info: dict = field(default_factory=dict)
+    resolution_info: dict = field(default_factory=dict)
     success: bool = False
     used_fallback: bool = False
     errors: list[str] = field(default_factory=list)
@@ -128,6 +129,16 @@ class PreprocessingPipeline:
         scanner = extract_scanner_info(t1_path)
         result.scanner_info = scanner.to_dict()
 
+        # Detect resolution and determine analysis tier
+        from synapse_d.utils.resolution import AnalysisTier, detect_resolution
+        res_info = detect_resolution(t1_path)
+        result.resolution_info = res_info.to_dict()
+        result.errors.extend(res_info.warnings)
+        tier = res_info.tier
+
+        logger.info(f"[{subject_id}] Analysis tier: {tier.value} "
+                    f"(max voxel: {res_info.max_voxel_dim:.1f}mm)")
+
         # Validate input
         try:
             img = load_nifti(t1_path)
@@ -138,7 +149,7 @@ class PreprocessingPipeline:
             result.errors.append(f"Input validation failed: {e}")
             return result
 
-        # Step 1: Brain Extraction (HD-BET)
+        # Step 1: Brain Extraction (HD-BET) — all tiers
         brain_path, mask_path = self._brain_extraction(t1_path, out_dir, subject_id)
         if brain_path:
             result.brain_extracted = brain_path
@@ -148,20 +159,27 @@ class PreprocessingPipeline:
             result.errors.append("Brain extraction failed")
             return result
 
-        # Step 2: Registration to MNI (ANTs)
-        reg_path = self._registration(brain_path, out_dir, subject_id)
-        if reg_path:
-            result.registered = reg_path
+        # Step 2: Registration to MNI (ANTs) — FULL and STANDARD only
+        if tier != AnalysisTier.BASIC:
+            reg_path = self._registration(brain_path, out_dir, subject_id)
+            if reg_path:
+                result.registered = reg_path
+            else:
+                result.errors.append("Registration failed")
         else:
-            result.errors.append("Registration failed")
-            # Continue anyway - segmentation can work without registration
+            logger.info(f"[{subject_id}] Skipping registration (BASIC tier)")
 
-        # Step 3: Segmentation (FastSurfer)
-        seg_path = self._segmentation(t1_path, out_dir, subject_id)
-        if seg_path:
-            result.segmentation = seg_path
+        # Step 3: Segmentation (FastSurfer) — FULL and STANDARD only
+        # BASIC tier: FastSurfer unreliable at >3mm, use SynthSeg volumetrics instead
+        if tier != AnalysisTier.BASIC:
+            seg_path = self._segmentation(t1_path, out_dir, subject_id)
+            if seg_path:
+                result.segmentation = seg_path
+            else:
+                result.errors.append("Segmentation failed")
         else:
-            result.errors.append("Segmentation failed")
+            logger.info(f"[{subject_id}] Skipping FastSurfer (BASIC tier, "
+                        f"using SynthSeg volumetrics only)")
 
         # Step 4: Extract morphometrics (FastSurfer stats or mask-based fallback)
         from synapse_d.pipeline.morphometry import extract_morphometry
