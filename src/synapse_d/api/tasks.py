@@ -9,6 +9,7 @@ API 서버의 응답 불능(Timeout)을 방지할 수 있다.
 from pathlib import Path
 
 from celery import Celery
+from loguru import logger
 
 from synapse_d.config import settings
 
@@ -30,7 +31,11 @@ celery_app.conf.update(
 )
 
 
-def run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
+def run_pipeline(
+    t1_path: Path,
+    chronological_age: float | None = None,
+    sex: str | None = None,
+) -> dict:
     """Execute the full analysis pipeline.
 
     Separated from API layer so it can be called from both
@@ -39,6 +44,7 @@ def run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
     Args:
         t1_path: Path to T1w NIfTI file.
         chronological_age: Optional actual age.
+        sex: Optional biological sex ('M' or 'F') for normative comparison.
 
     Returns:
         Dict with preprocessing and brain age results.
@@ -83,16 +89,18 @@ def run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
                 ),
             }
         except Exception as e:
-            result["brain_age"] = {"error": str(e)}
+            logger.error(f"Brain age prediction failed: {e}")
+            result["brain_age"] = {"error": "Brain age prediction failed"}
 
     # Step 3: Normative comparison (if age provided and morphometrics available)
-    if chronological_age and preproc_result.morphometrics:
+    if chronological_age is not None and preproc_result.morphometrics:
         try:
             from synapse_d.models.normative import compare_normative
 
             norm_result = compare_normative(
                 morphometrics=preproc_result.morphometrics,
                 age=chronological_age,
+                sex=sex or "M",
                 subject_id=preproc_result.subject_id,
             )
             result["normative"] = norm_result.summary
@@ -104,7 +112,10 @@ def run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
 
 @celery_app.task(bind=True, name="synapse_d.analyze_mri")
 def analyze_mri_task(
-    self, t1_path_str: str, chronological_age: float | None = None
+    self,
+    t1_path_str: str,
+    chronological_age: float | None = None,
+    sex: str | None = None,
 ) -> dict:
     """Celery task: run full MRI analysis pipeline asynchronously.
 
@@ -120,4 +131,4 @@ def analyze_mri_task(
         Dict with preprocessing and brain age results.
     """
     self.update_state(state="PREPROCESSING", meta={"step": "brain_extraction"})
-    return run_pipeline(Path(t1_path_str), chronological_age)
+    return run_pipeline(Path(t1_path_str), chronological_age, sex)

@@ -107,10 +107,16 @@ def _parse_bids_json(json_path: Path) -> ScannerInfo:
         logger.warning(f"Failed to parse BIDS JSON {json_path}: {e}")
         return ScannerInfo()
 
+    def _safe_float(val: object, default: float = 0.0) -> float:
+        try:
+            return float(val)  # type: ignore[arg-type]
+        except (TypeError, ValueError):
+            return default
+
     info = ScannerInfo(
         manufacturer=_normalize_manufacturer(data.get("Manufacturer", "unknown")),
         model=data.get("ManufacturersModelName", "unknown"),
-        field_strength_t=float(data.get("MagneticFieldStrength", 0)),
+        field_strength_t=_safe_float(data.get("MagneticFieldStrength", 0)),
         sequence=data.get("PulseSequenceType",
                          data.get("SequenceName",
                          data.get("ScanningSequence", "unknown"))),
@@ -132,7 +138,8 @@ def _parse_nifti_header(nifti_path: Path) -> ScannerInfo:
     try:
         img = nib.load(str(nifti_path))
         header = img.header
-        descrip = str(header.get("descrip", b""), "utf-8").strip() if hasattr(header, "get") else ""
+        raw = header.get("descrip", b"") if hasattr(header, "get") else b""
+        descrip = raw.decode("utf-8", errors="replace").strip() if isinstance(raw, bytes) else str(raw).strip()
     except Exception:
         return ScannerInfo(source="none")
 
@@ -171,7 +178,7 @@ def _normalize_manufacturer(raw: str) -> str:
     raw_lower = raw.lower().strip()
     if "siemens" in raw_lower:
         return "Siemens"
-    if "ge" in raw_lower or "general electric" in raw_lower:
+    if raw_lower in ("ge", "ge medical systems", "ge healthcare") or "general electric" in raw_lower:
         return "GE"
     if "philips" in raw_lower:
         return "Philips"

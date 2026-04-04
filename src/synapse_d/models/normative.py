@@ -77,7 +77,23 @@ _BRAIN_VOLUME_NORMS: dict[str, dict[int, tuple[float, float]]] = {
     },
 }
 
-# Hippocampal volume norms (sum of L+R, mm3)
+# Sex-pooled norms for ICV-normalized volumes.
+# When ICV normalization is applied, sex-based head size difference is already
+# removed, so sex-pooled norms should be used to avoid double correction.
+# Values: weighted average of M and F norms (approx 50/50 sex ratio)
+_BRAIN_VOLUME_NORMS_POOLED: dict[int, tuple[float, float]] = {
+    20: (1200, 100), 30: (1183, 100), 40: (1165, 105),
+    50: (1138, 105), 60: (1100, 110), 70: (1053, 110),
+    80: (1005, 115),
+}
+
+_HIPPOCAMPUS_NORMS_POOLED: dict[int, tuple[float, float]] = {
+    20: (8000, 820), 30: (7900, 820), 40: (7700, 860),
+    50: (7400, 860), 60: (7000, 900), 70: (6500, 900),
+    80: (5950, 940),
+}
+
+# Hippocampal volume norms (sum of L+R, mm3) — sex-specific (for raw values)
 # Source: Nobis et al., NeuroImage 2019
 _HIPPOCAMPUS_NORMS: dict[str, dict[int, tuple[float, float]]] = {
     "M": {
@@ -163,19 +179,24 @@ def compare_normative(
     """
     sex = sex.upper()
     if sex not in ("M", "F"):
-        sex = "M"  # Default
+        logger.warning(f"[{subject_id}] Unknown sex '{sex}', defaulting to 'M'")
+        sex = "M"
 
     result = NormativeResult(subject_id=subject_id, age=age, sex=sex)
     scores = []
     icv_available = "normalization_method" in morphometrics
 
-    # Total brain volume — use ICV-normalized value if available
-    # ICV normalization removes sex/ethnicity head-size bias (Liu et al., 2025)
+    # Total brain volume — use ICV-normalized value if available.
+    # ICV normalization removes sex/ethnicity head-size bias (Liu et al., 2025),
+    # so we use sex-pooled norms for normalized values to avoid double correction.
     vol_key = "total_brain_volume_normalized_cm3" if icv_available else "total_brain_volume_cm3"
     vol = morphometrics.get(vol_key) or morphometrics.get("total_brain_volume_cm3")
     if vol:
-        sex_norms = _BRAIN_VOLUME_NORMS.get(sex, _BRAIN_VOLUME_NORMS["M"])
-        mean, std = _get_norm(sex_norms, age)
+        if icv_available:
+            mean, std = _get_norm(_BRAIN_VOLUME_NORMS_POOLED, age)
+        else:
+            sex_norms = _BRAIN_VOLUME_NORMS.get(sex, _BRAIN_VOLUME_NORMS["M"])
+            mean, std = _get_norm(sex_norms, age)
         z = (vol - mean) / std if std > 0 else 0.0
         scores.append(NormativeScore(
             metric="total_brain_volume",
@@ -184,12 +205,15 @@ def compare_normative(
             interpretation=_interpret_z(z, "brain volume"),
         ))
 
-    # Hippocampal volume — use ICV-normalized if available
+    # Hippocampal volume — use ICV-normalized + pooled norms if available
     hippo_key = "hippocampus_total_normalized_mm3" if icv_available else "hippocampus_total_mm3"
     hippo = morphometrics.get(hippo_key) or morphometrics.get("hippocampus_total_mm3")
     if hippo:
-        sex_norms = _HIPPOCAMPUS_NORMS.get(sex, _HIPPOCAMPUS_NORMS["M"])
-        mean, std = _get_norm(sex_norms, age)
+        if icv_available:
+            mean, std = _get_norm(_HIPPOCAMPUS_NORMS_POOLED, age)
+        else:
+            sex_norms = _HIPPOCAMPUS_NORMS.get(sex, _HIPPOCAMPUS_NORMS["M"])
+            mean, std = _get_norm(sex_norms, age)
         z = (hippo - mean) / std if std > 0 else 0.0
         scores.append(NormativeScore(
             metric="hippocampus_volume",

@@ -127,18 +127,54 @@ def parse_icv_from_aseg(stats_path: Path) -> float:
         return 0.0
 
     for line in stats_path.read_text().splitlines():
-        if "EstimatedTotalIntraCranialVol" in line or "eTIV" in line:
+        if line.startswith("# Measure") and "EstimatedTotalIntraCranialVol" in line:
             # Format: # Measure EstimatedTotalIntraCranialVol, eTIV, ..., <value>, mm^3
             parts = line.split(",")
             for part in reversed(parts):
-                part = part.strip().rstrip("mm^3").strip()
+                cleaned = part.strip()
+                if cleaned.endswith("mm^3"):
+                    cleaned = cleaned[:-4].strip()
                 try:
-                    icv = float(part)
+                    icv = float(cleaned)
                     if icv > 100000:  # Sanity check: ICV > 100 cm3
                         logger.info(f"Parsed ICV: {icv:.0f} mm³ ({icv/1000:.1f} cm³)")
                         return icv
                 except ValueError:
                     continue
+    return 0.0
+
+
+def parse_brain_seg_vol(stats_path: Path) -> float:
+    """Extract BrainSegVolNotVent from aseg.stats header (mm3).
+
+    This is the correct total brain volume excluding ventricles,
+    NOT the sum of subcortical regions (which would underestimate by 75-85%).
+
+    Args:
+        stats_path: Path to aseg.stats file.
+
+    Returns:
+        Brain segmentation volume in mm3, or 0.0 if not found.
+    """
+    if not stats_path.exists():
+        return 0.0
+
+    # Try BrainSegVolNotVent first, then BrainSegVol
+    for target in ("BrainSegVolNotVent,", "BrainSegVol,"):
+        for line in stats_path.read_text().splitlines():
+            if line.startswith("# Measure") and target in line:
+                parts = line.split(",")
+                for part in reversed(parts):
+                    cleaned = part.strip()
+                    if cleaned.endswith("mm^3"):
+                        cleaned = cleaned[:-4].strip()
+                    try:
+                        val = float(cleaned)
+                        if val > 100000:
+                            logger.info(f"Parsed {target.rstrip(',')}: {val:.0f} mm³")
+                            return val
+                    except ValueError:
+                        continue
     return 0.0
 
 
@@ -246,9 +282,14 @@ def extract_morphometry(
             icv_mm3 = parse_icv_from_aseg(aseg_path)
             icv_cm3 = icv_mm3 / 1000.0
 
-            # Compute total brain volume from subcortical volumes
-            total_vol = sum(r.volume_mm3 for r in subcortical)
-            total_vol_cm3 = total_vol / 1000.0
+            # Total brain volume from header (NOT subcortical sum)
+            brain_seg_vol = parse_brain_seg_vol(aseg_path)
+            if brain_seg_vol > 0:
+                total_vol_cm3 = brain_seg_vol / 1000.0
+            else:
+                # Fallback: subcortical sum (underestimates by ~75-85%)
+                total_vol_cm3 = sum(r.volume_mm3 for r in subcortical) / 1000.0
+                logger.warning("BrainSegVol not found, using subcortical sum (inaccurate)")
 
             # Build summary with key clinical metrics + ICV normalization
             summary = _build_summary(

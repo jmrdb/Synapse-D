@@ -57,14 +57,16 @@ def _validate_subject_id(subject_id: str) -> str:
     return subject_id
 
 
-def _run_sync(t1_path: Path, chronological_age: float | None) -> dict:
+def _run_sync(
+    t1_path: Path, chronological_age: float | None, sex: str | None = None
+) -> dict:
     """Execute pipeline synchronously and return unified response.
 
     Used for sync=True requests and Celery fallback.
     """
     from synapse_d.api.tasks import run_pipeline
 
-    result = run_pipeline(t1_path, chronological_age)
+    result = run_pipeline(t1_path, chronological_age, sex)
     return {
         "job_id": uuid.uuid4().hex[:12],
         "status": "completed",
@@ -133,12 +135,19 @@ async def upload_mri(file: UploadFile = File(...)):
 async def start_analysis(
     subject_id: str,
     chronological_age: float | None = None,
+    sex: str | None = None,
     sync: bool = False,
 ):
     """Start preprocessing + Brain Age analysis for an uploaded MRI.
 
     By default dispatches to Celery worker (async). If Redis/Celery is
     unavailable or sync=True, falls back to synchronous execution.
+
+    Args:
+        subject_id: Subject ID from upload.
+        chronological_age: Actual age for Brain Age Gap and normative comparison.
+        sex: Biological sex ('M' or 'F') for sex-specific normative comparison.
+        sync: Force synchronous execution.
     """
     _validate_subject_id(subject_id)
 
@@ -154,16 +163,16 @@ async def start_analysis(
 
     # Synchronous execution (dev/test or Celery unavailable)
     if sync:
-        return _run_sync(t1_path, chronological_age)
+        return _run_sync(t1_path, chronological_age, sex)
 
     # Async execution via Celery
     try:
         from synapse_d.api.tasks import analyze_mri_task
 
-        task = analyze_mri_task.delay(str(t1_path), chronological_age)
+        task = analyze_mri_task.delay(str(t1_path), chronological_age, sex)
         return {"job_id": task.id, "status": "submitted"}
     except Exception:
-        return _run_sync(t1_path, chronological_age)
+        return _run_sync(t1_path, chronological_age, sex)
 
 
 @app.get("/api/v1/results/{job_id}")
