@@ -142,7 +142,13 @@ class BrainAgePredictor:
         self.model = self._load_model()
 
     def _load_model(self) -> SFCN:
-        """Load SFCN model with pretrained weights."""
+        """Load SFCN model with pretrained weights.
+
+        The original SFCN checkpoint uses 'module.' prefix (saved with DataParallel).
+        We strip this prefix and load with strict=True to ensure all 44 parameters
+        match exactly — any mismatch will raise an error rather than silently
+        using random weights.
+        """
         model = SFCN(output_dim=40, dropout=True)
 
         if self.weights_path.exists():
@@ -151,13 +157,23 @@ class BrainAgePredictor:
                 map_location=self.device,
                 weights_only=False,
             )
-            # Handle different checkpoint formats
+            # Handle checkpoint wrapper format
             if isinstance(state_dict, dict) and "model" in state_dict:
                 state_dict = state_dict["model"]
-            model.load_state_dict(state_dict, strict=False)
-            logger.info(f"Loaded SFCN weights from {self.weights_path}")
+            # Strip 'module.' prefix from DataParallel-saved weights
+            state_dict = {
+                k.removeprefix("module."): v for k, v in state_dict.items()
+            }
+            model.load_state_dict(state_dict, strict=True)
+            loaded = len(state_dict)
+            expected = len(model.state_dict())
+            logger.info(f"Loaded SFCN weights: {loaded}/{expected} params "
+                        f"from {self.weights_path.name}")
         else:
-            logger.warning(f"SFCN weights not found at {self.weights_path}, using random init")
+            raise FileNotFoundError(
+                f"SFCN weights not found at {self.weights_path}. "
+                "Cannot predict Brain Age without pretrained model."
+            )
 
         model.to(self.device)
         model.eval()

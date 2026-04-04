@@ -50,6 +50,7 @@ class PreprocessingResult:
     segmentation: Path | None = None
     morphometrics: dict = field(default_factory=dict)
     success: bool = False
+    used_fallback: bool = False
     errors: list[str] = field(default_factory=list)
 
 
@@ -61,10 +62,48 @@ class PreprocessingPipeline:
         device: Compute device ('cpu' or 'cuda').
     """
 
-    def __init__(self, output_dir: Path | None = None, device: str | None = None):
+    def __init__(
+        self,
+        output_dir: Path | None = None,
+        device: str | None = None,
+        allow_fallback: bool | None = None,
+    ):
         self.output_dir = output_dir or settings.output_dir
         self.device = device or settings.device
+        # Fallback: allowed in dev (cpu), blocked in production (cuda)
+        if allow_fallback is not None:
+            self.allow_fallback = allow_fallback
+        else:
+            self.allow_fallback = self.device == "cpu"
         self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _run_command(
+        cmd: list[str], subject_id: str, tool_name: str, timeout: int = 600
+    ) -> tuple[bool, str]:
+        """Execute an external tool as subprocess with unified error handling.
+
+        Args:
+            cmd: Command and arguments.
+            subject_id: For logging.
+            tool_name: Human-readable tool name for error messages.
+            timeout: Max seconds to wait.
+
+        Returns:
+            Tuple of (success, error_message). error_message contains
+            "not found" if the tool is not installed.
+        """
+        try:
+            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=timeout)
+            return True, ""
+        except FileNotFoundError:
+            return False, f"{tool_name} not found"
+        except subprocess.CalledProcessError as e:
+            logger.error(f"[{subject_id}] {tool_name} failed: {e.stderr[:500]}")
+            return False, e.stderr[:500]
+        except subprocess.TimeoutExpired:
+            logger.error(f"[{subject_id}] {tool_name} timed out ({timeout}s)")
+            return False, "timeout"
 
     def run(self, t1_path: Path) -> PreprocessingResult:
         """Execute the full preprocessing pipeline on a T1w MRI.
@@ -79,6 +118,7 @@ class PreprocessingPipeline:
         result = PreprocessingResult(subject_id=subject_id, input_path=t1_path)
         out_dir = make_output_dir(self.output_dir, subject_id)
 
+        self._used_fallback = False
         logger.info(f"[{subject_id}] Starting preprocessing pipeline")
         logger.info(f"[{subject_id}] Input: {t1_path}")
 
@@ -97,6 +137,7 @@ class PreprocessingPipeline:
         if brain_path:
             result.brain_extracted = brain_path
             result.brain_mask = mask_path
+            result.used_fallback = self._used_fallback
         else:
             result.errors.append("Brain extraction failed")
             return result
@@ -147,35 +188,32 @@ class PreprocessingPipeline:
         brain_path = out_dir / f"{subject_id}_T1w_brain.nii.gz"
         mask_path = out_dir / f"{subject_id}_T1w_brain_mask.nii.gz"
 
-        try:
-            cmd = [
-                "hd-bet",
-                "-i", str(t1_path),
-                "-o", str(brain_path),
-                "-device", self.device,
-                "-mode", "fast",
-                "-tta", "0",
-            ]
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
-            logger.info(f"[{subject_id}] Brain extraction complete: {brain_path}")
+        cmd = [
+            "hd-bet",
+            "-i", str(t1_path),
+            "-o", str(brain_path),
+            "-device", self.device,
+            "-mode", "fast",
+            "-tta", "0",
+        ]
+        ok, err = self._run_command(cmd, subject_id, "HD-BET", timeout=600)
+        if ok:
             return brain_path, mask_path
-        except FileNotFoundError:
-            logger.warning(f"[{subject_id}] HD-BET not installed, using fallback")
+        if "not found" in err and self.allow_fallback:
+            self._used_fallback = True
             return self._brain_extraction_fallback(t1_path, brain_path, mask_path, subject_id)
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[{subject_id}] HD-BET failed: {e.stderr}")
-            return None, None
-        except subprocess.TimeoutExpired:
-            logger.error(f"[{subject_id}] HD-BET timed out")
-            return None, None
+        if "not found" in err and not self.allow_fallback:
+            logger.error(f"[{subject_id}] HD-BET not installed and fallback disabled")
+        return None, None
 
     def _brain_extraction_fallback(
         self, t1_path: Path, brain_path: Path, mask_path: Path, subject_id: str
     ) -> tuple[Path | None, Path | None]:
         """Fallback brain extraction using simple intensity thresholding.
 
-        Used when HD-BET is not installed (development/testing).
-        NOT suitable for production - use HD-BET for real analysis.
+        DEV/TEST ONLY. Results are inaccurate (no proper skull stripping).
+        The 'used_fallback' flag is set on the result so consumers know
+        the brain extraction quality is degraded.
 
         Args:
             t1_path: Input T1w NIfTI.
@@ -186,7 +224,7 @@ class PreprocessingPipeline:
         Returns:
             Tuple of (brain_path, mask_path).
         """
-        logger.warning(f"[{subject_id}] Using fallback brain extraction (dev only)")
+        logger.warning(f"[{subject_id}] FALLBACK brain extraction — results are approximate (dev only)")
         img = nib.load(str(t1_path))
         data = np.asanyarray(img.dataobj, dtype=np.float32)
 
@@ -254,31 +292,23 @@ class PreprocessingPipeline:
         logger.info(f"[{subject_id}] Step 3/3: Segmentation (FastSurfer)")
         fs_dir = out_dir.parent / "fastsurfer"
 
-        try:
-            cmd = [
-                "fastsurfer",
-                "--t1", str(t1_path),
-                "--sid", subject_id,
-                "--sd", str(fs_dir),
-                "--seg_only",
-                "--no_cuda" if self.device == "cpu" else "",
-            ]
-            cmd = [c for c in cmd if c]  # Remove empty strings
-            subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=1800)
+        cmd = [
+            "fastsurfer",
+            "--t1", str(t1_path),
+            "--sid", subject_id,
+            "--sd", str(fs_dir),
+            "--seg_only",
+        ]
+        if self.device == "cpu":
+            cmd.append("--no_cuda")
+
+        ok, _ = self._run_command(cmd, subject_id, "FastSurfer", timeout=1800)
+        if ok:
             seg_path = fs_dir / subject_id / "mri" / "aparc.DKTatlas+aseg.deep.mgz"
             if seg_path.exists():
                 logger.info(f"[{subject_id}] Segmentation complete: {seg_path}")
                 return seg_path
-            return None
-        except FileNotFoundError:
-            logger.warning(f"[{subject_id}] FastSurfer not installed, skipping segmentation")
-            return None
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[{subject_id}] FastSurfer failed: {e.stderr[:500]}")
-            return None
-        except subprocess.TimeoutExpired:
-            logger.error(f"[{subject_id}] FastSurfer timed out (30min)")
-            return None
+        return None
 
     def _extract_morphometrics(
         self, result: PreprocessingResult, subject_id: str

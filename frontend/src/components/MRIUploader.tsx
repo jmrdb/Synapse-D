@@ -45,20 +45,26 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
         return;
       }
 
-      // Poll for results until done
+      // Poll for results (max 30 min, 3s interval)
       setMessage("전처리 파이프라인 실행 중...");
-      let result: AnalysisResult;
-      while (true) {
-        await new Promise((r) => setTimeout(r, 2000));
-        result = await getResults(job.job_id);
+      const MAX_POLLS = 600; // 30 min / 3s
+      let result: AnalysisResult | null = null;
+      for (let i = 0; i < MAX_POLLS; i++) {
+        await new Promise((r) => setTimeout(r, 3000));
+        try {
+          result = await getResults(job.job_id);
+        } catch {
+          // Network error — retry silently
+          continue;
+        }
         if (result.status === "completed" || result.status === "failed") break;
         if (result.status === "processing") {
           setMessage("뇌 영상 분석 중...");
         }
       }
 
-      if (result.status === "failed") {
-        throw new Error("분석 실패");
+      if (!result || result.status !== "completed") {
+        throw new Error(result?.status === "failed" ? "분석 실패" : "분석 시간 초과");
       }
 
       setStatus("done");

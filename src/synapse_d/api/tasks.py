@@ -49,14 +49,19 @@ def run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
     pipeline = PreprocessingPipeline()
     preproc_result = pipeline.run(t1_path)
 
+    warnings = list(preproc_result.errors)
+    if preproc_result.used_fallback:
+        warnings.insert(0, "FALLBACK: Approximate brain extraction used (HD-BET not available)")
+
     result = {
         "preprocessing": {
             "success": preproc_result.success,
+            "used_fallback": preproc_result.used_fallback,
             "brain_extracted": str(preproc_result.brain_extracted) if preproc_result.brain_extracted else None,
             "registered": str(preproc_result.registered) if preproc_result.registered else None,
             "segmentation": str(preproc_result.segmentation) if preproc_result.segmentation else None,
             "morphometrics": preproc_result.morphometrics,
-            "errors": preproc_result.errors,
+            "errors": warnings,
         },
     }
 
