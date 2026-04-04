@@ -97,7 +97,12 @@ def run_pipeline(
         try:
             from synapse_d.models.normative import compare_normative
 
-            field_t = preproc_result.scanner_info.get("field_strength_t", 0.0)
+            raw_field = preproc_result.scanner_info.get("field_strength_t", 0.0)
+            try:
+                field_t = float(raw_field)
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid field_strength_t: {raw_field!r}, defaulting to 0.0")
+                field_t = 0.0
             norm_result = compare_normative(
                 morphometrics=preproc_result.morphometrics,
                 age=chronological_age,

@@ -164,7 +164,7 @@ _FIELD_STRENGTH_CORRECTION: dict[str, float] = {
     "cortical_thickness": 1.045,   # 1.5T * 1.045 ≈ 3T equivalent
     "hippocampus_volume": 1.05,    # 1.5T * 1.05 ≈ 3T equivalent
     "brain_volume": 1.02,          # 1.5T * 1.02 ≈ 3T equivalent
-    "ventricle_volume": 0.98,      # Ventricles slightly smaller at 3T
+    # "ventricle_volume": 0.98  # Reserved for Phase 2 ventricle normative comparison
 }
 
 
@@ -187,9 +187,13 @@ def _apply_field_correction(
     Returns:
         Tuple of (corrected_value, was_corrected).
     """
-    if field_strength_t <= 0 or field_strength_t >= 2.5:
-        # 3T or unknown — no correction needed
-        return value, False
+    if field_strength_t <= 0:
+        return value, False  # Unknown field strength
+    if field_strength_t >= 2.5:
+        if field_strength_t > 4.0:
+            logger.warning(f"7T+ scanner ({field_strength_t}T) — field correction "
+                          f"not supported, normative results may be biased")
+        return value, False  # 3T or higher — norms are 3T-based
 
     factor = _FIELD_STRENGTH_CORRECTION.get(metric, 1.0)
     corrected = value * factor
@@ -243,14 +247,17 @@ def compare_normative(
     icv_available = "normalization_method" in morphometrics
     field_corrected = False
 
-    # Total brain volume — use ICV-normalized value if available.
-    # ICV normalization removes sex/ethnicity head-size bias (Liu et al., 2025),
-    # so we use sex-pooled norms for normalized values to avoid double correction.
+    # Total brain volume
+    # ICV normalization already cancels field strength bias in the ratio
+    # (both numerator and denominator are biased in the same direction),
+    # so field correction is only applied to RAW (non-ICV-normalized) values.
     vol_key = "total_brain_volume_normalized_cm3" if icv_available else "total_brain_volume_cm3"
     vol = morphometrics.get(vol_key) or morphometrics.get("total_brain_volume_cm3")
     if vol:
-        vol, fc = _apply_field_correction(vol, "brain_volume", field_strength_t)
-        field_corrected = field_corrected or fc
+        raw_vol = vol
+        if not icv_available:
+            vol, fc = _apply_field_correction(vol, "brain_volume", field_strength_t)
+            field_corrected = field_corrected or fc
         if icv_available:
             mean, std = _get_norm(_BRAIN_VOLUME_NORMS_POOLED, age)
         else:
@@ -259,17 +266,19 @@ def compare_normative(
         z = (vol - mean) / std if std > 0 else 0.0
         scores.append(NormativeScore(
             metric="total_brain_volume",
-            value=vol, expected=round(mean, 1), std=round(std, 1),
+            value=round(raw_vol, 1), expected=round(mean, 1), std=round(std, 1),
             z_score=round(z, 2),
             interpretation=_interpret_z(z, "brain volume"),
         ))
 
-    # Hippocampal volume — use ICV-normalized + pooled norms if available
+    # Hippocampal volume — same logic: skip field correction if ICV-normalized
     hippo_key = "hippocampus_total_normalized_mm3" if icv_available else "hippocampus_total_mm3"
     hippo = morphometrics.get(hippo_key) or morphometrics.get("hippocampus_total_mm3")
     if hippo:
-        hippo, fc = _apply_field_correction(hippo, "hippocampus_volume", field_strength_t)
-        field_corrected = field_corrected or fc
+        raw_hippo = hippo
+        if not icv_available:
+            hippo, fc = _apply_field_correction(hippo, "hippocampus_volume", field_strength_t)
+            field_corrected = field_corrected or fc
         if icv_available:
             mean, std = _get_norm(_HIPPOCAMPUS_NORMS_POOLED, age)
         else:
@@ -278,22 +287,23 @@ def compare_normative(
         z = (hippo - mean) / std if std > 0 else 0.0
         scores.append(NormativeScore(
             metric="hippocampus_volume",
-            value=hippo, expected=round(mean, 0), std=round(std, 0),
+            value=round(raw_hippo, 0), expected=round(mean, 0), std=round(std, 0),
             z_score=round(z, 2),
             interpretation=_interpret_z(z, "hippocampal volume"),
         ))
 
-    # Mean cortical thickness — NO ICV normalization (ethnicity-stable per Wisch 2025)
-    # But field strength correction IS needed (+4.5% at 3T vs 1.5T, Reuter 2012)
+    # Mean cortical thickness — NOT ICV-normalized (ethnicity-stable, Wisch 2025)
+    # Field correction IS needed (+4.5% at 3T vs 1.5T, Reuter 2012)
     thickness = morphometrics.get("mean_cortical_thickness_mm")
     if thickness:
+        raw_thickness = thickness
         thickness, fc = _apply_field_correction(thickness, "cortical_thickness", field_strength_t)
         field_corrected = field_corrected or fc
         mean, std = _get_norm(_CORTICAL_THICKNESS_NORMS, age)
         z = (thickness - mean) / std if std > 0 else 0.0
         scores.append(NormativeScore(
             metric="cortical_thickness",
-            value=thickness, expected=round(mean, 3), std=round(std, 3),
+            value=round(raw_thickness, 3), expected=round(mean, 3), std=round(std, 3),
             z_score=round(z, 2),
             interpretation=_interpret_z(z, "cortical thickness"),
         ))
