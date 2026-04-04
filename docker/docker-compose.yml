@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   # FastAPI Backend
   api:
@@ -12,7 +10,7 @@ services:
       - ../data:/app/data
       - ../src:/app/src
     environment:
-      - SYNAPSE_DEVICE=cpu
+      - SYNAPSE_DEVICE=${SYNAPSE_DEVICE:-cpu}
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
       - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
     depends_on:
@@ -23,22 +21,51 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    command: celery -A synapse_d.api.tasks worker --loglevel=info
+    command: celery -A synapse_d.api.tasks:celery_app worker --loglevel=info --concurrency=2
     volumes:
       - ../data:/app/data
       - ../src:/app/src
     environment:
-      - SYNAPSE_DEVICE=cpu
+      - SYNAPSE_DEVICE=${SYNAPSE_DEVICE:-cpu}
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
       - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
     depends_on:
       - redis
+    # GPU 사용 시: docker compose --profile gpu up
+    profiles: ["cpu", ""]
 
-  # Redis (message broker + result backend)
+  # Celery Worker (GPU variant)
+  worker-gpu:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: celery -A synapse_d.api.tasks:celery_app worker --loglevel=info --concurrency=1
+    volumes:
+      - ../data:/app/data
+      - ../src:/app/src
+    environment:
+      - SYNAPSE_DEVICE=cuda
+      - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
+      - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    profiles: ["gpu"]
+
+  # Redis (message broker + result backend for Celery job state)
   redis:
     image: redis:7-alpine
     ports:
       - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
 
   # Frontend (Next.js)
   frontend:
@@ -47,5 +74,10 @@ services:
       dockerfile: Dockerfile
     ports:
       - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://api:8000
     depends_on:
       - api
+
+volumes:
+  redis_data:

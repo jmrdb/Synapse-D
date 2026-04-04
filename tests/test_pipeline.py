@@ -130,14 +130,10 @@ class TestAPI:
         upload_data = response.json()
         subject_id = upload_data["subject_id"]
 
-        # Analyze
-        response = client.post(f"/api/v1/analyze/{subject_id}?chronological_age=30")
-        assert response.status_code == 200
-        job_data = response.json()
-        job_id = job_data["job_id"]
-
-        # Get results
-        response = client.get(f"/api/v1/results/{job_id}")
+        # Analyze (sync mode — no Redis/Celery needed for tests)
+        response = client.post(
+            f"/api/v1/analyze/{subject_id}?chronological_age=30&sync=true"
+        )
         assert response.status_code == 200
         result = response.json()
         assert result["status"] == "completed"

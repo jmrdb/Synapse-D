@@ -2,6 +2,9 @@
 
 FastAPI application providing REST endpoints for MRI upload,
 preprocessing pipeline execution, and Brain Age prediction.
+
+Job state is managed via Celery's Redis result backend instead of
+in-memory dicts, so state survives API server restarts.
 """
 
 import uuid
@@ -9,7 +12,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from synapse_d import __version__
 from synapse_d.config import settings
@@ -28,8 +31,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory job store (replace with DB in production)
-_jobs: dict[str, dict] = {}
+# Serve processed NIfTI files for Niivue frontend rendering
+settings.output_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/files", StaticFiles(directory=str(settings.output_dir)), name="files")
 
 
 @app.get("/health")
@@ -43,12 +47,6 @@ async def upload_mri(file: UploadFile = File(...)):
     """Upload a T1-weighted MRI NIfTI file.
 
     Accepts .nii or .nii.gz files. Returns a subject_id for tracking.
-
-    Args:
-        file: NIfTI file upload.
-
-    Returns:
-        JSON with subject_id and upload status.
     """
     if not file.filename or not (
         file.filename.endswith(".nii") or file.filename.endswith(".nii.gz")
@@ -74,19 +72,21 @@ async def upload_mri(file: UploadFile = File(...)):
 
 
 @app.post("/api/v1/analyze/{subject_id}")
-async def start_analysis(subject_id: str, chronological_age: float | None = None):
+async def start_analysis(
+    subject_id: str,
+    chronological_age: float | None = None,
+    sync: bool = False,
+):
     """Start preprocessing + Brain Age analysis for an uploaded MRI.
 
-    This triggers the async pipeline: HD-BET → ANTs → FastSurfer → SFCN Brain Age.
+    By default dispatches to Celery worker (async). If Redis/Celery is
+    unavailable or sync=True, falls back to synchronous execution.
 
     Args:
         subject_id: Subject ID from upload response.
-        chronological_age: Optional actual age for Brain Age Gap calculation.
-
-    Returns:
-        JSON with job_id and status.
+        chronological_age: Optional actual age for Brain Age Gap.
+        sync: Force synchronous execution (for testing/dev).
     """
-    # Find the uploaded file
     subject_dir = settings.upload_dir / subject_id / "anat"
     if not subject_dir.exists():
         raise HTTPException(status_code=404, detail=f"Subject {subject_id} not found")
@@ -96,110 +96,79 @@ async def start_analysis(subject_id: str, chronological_age: float | None = None
         raise HTTPException(status_code=404, detail="No T1w file found for subject")
 
     t1_path = nifti_files[0]
-    job_id = uuid.uuid4().hex[:12]
 
-    # Run synchronously for now (async Celery integration in production)
-    _jobs[job_id] = {"status": "running", "subject_id": subject_id}
+    if sync:
+        # Synchronous execution (dev/test mode)
+        from synapse_d.api.tasks import run_pipeline
 
+        result = run_pipeline(t1_path, chronological_age)
+        job_id = uuid.uuid4().hex[:12]
+        return {"job_id": job_id, "status": "completed", "result": result}
+
+    # Async execution via Celery
     try:
-        result = _run_pipeline(t1_path, chronological_age)
-        _jobs[job_id] = {
-            "status": "completed",
-            "subject_id": subject_id,
-            "result": result,
-        }
-    except Exception as e:
-        _jobs[job_id] = {
-            "status": "failed",
-            "subject_id": subject_id,
-            "error": str(e),
-        }
+        from synapse_d.api.tasks import analyze_mri_task
 
-    return {"job_id": job_id, "status": _jobs[job_id]["status"]}
+        task = analyze_mri_task.delay(str(t1_path), chronological_age)
+        return {"job_id": task.id, "status": "submitted"}
+    except Exception:
+        # Celery/Redis unavailable — fallback to sync
+        from synapse_d.api.tasks import run_pipeline
+
+        result = run_pipeline(t1_path, chronological_age)
+        job_id = uuid.uuid4().hex[:12]
+        return {"job_id": job_id, "status": "completed", "result": result}
 
 
 @app.get("/api/v1/results/{job_id}")
 async def get_results(job_id: str):
-    """Get analysis results for a completed job.
+    """Get analysis results for a job.
 
-    Args:
-        job_id: Job ID from analyze response.
-
-    Returns:
-        JSON with full analysis results including Brain Age and morphometrics.
+    Checks Celery result backend (Redis) for job state and results.
+    Possible statuses: PENDING, PREPROCESSING, SUCCESS, FAILURE.
     """
-    if job_id not in _jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
+    try:
+        from synapse_d.api.tasks import celery_app
 
-    job = _jobs[job_id]
-    if job["status"] == "running":
-        return {"job_id": job_id, "status": "running"}
-    if job["status"] == "failed":
-        raise HTTPException(status_code=500, detail=job.get("error", "Unknown error"))
+        task_result = celery_app.AsyncResult(job_id)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Result backend unavailable")
 
-    return {"job_id": job_id, **job}
+    if task_result.state == "PENDING":
+        return {"job_id": job_id, "status": "pending"}
+    elif task_result.state == "PREPROCESSING":
+        return {
+            "job_id": job_id,
+            "status": "processing",
+            "detail": task_result.info.get("step", "unknown") if task_result.info else None,
+        }
+    elif task_result.state == "SUCCESS":
+        return {
+            "job_id": job_id,
+            "status": "completed",
+            "result": task_result.result,
+        }
+    elif task_result.state == "FAILURE":
+        return {
+            "job_id": job_id,
+            "status": "failed",
+            "error": str(task_result.result),
+        }
+    else:
+        return {"job_id": job_id, "status": task_result.state.lower()}
 
 
 @app.get("/api/v1/subjects")
 async def list_subjects():
-    """List all uploaded subjects.
-
-    Returns:
-        JSON with list of subject IDs and their analysis status.
-    """
+    """List all uploaded subjects."""
     subjects = []
     if settings.upload_dir.exists():
         for d in sorted(settings.upload_dir.iterdir()):
             if d.is_dir() and d.name.startswith("sub-"):
-                subjects.append({
-                    "subject_id": d.name,
-                    "has_t1": bool(list((d / "anat").glob("*_T1w*"))) if (d / "anat").exists() else False,
-                })
+                has_t1 = (
+                    bool(list((d / "anat").glob("*_T1w*")))
+                    if (d / "anat").exists()
+                    else False
+                )
+                subjects.append({"subject_id": d.name, "has_t1": has_t1})
     return {"subjects": subjects}
-
-
-def _run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
-    """Execute the full analysis pipeline synchronously.
-
-    Args:
-        t1_path: Path to T1w NIfTI file.
-        chronological_age: Optional actual age.
-
-    Returns:
-        Dict with preprocessing and brain age results.
-    """
-    from synapse_d.models.brain_age import BrainAgePredictor
-    from synapse_d.pipeline.preprocessing import PreprocessingPipeline
-
-    # Step 1: Preprocessing
-    pipeline = PreprocessingPipeline()
-    preproc_result = pipeline.run(t1_path)
-
-    result = {
-        "preprocessing": {
-            "success": preproc_result.success,
-            "brain_extracted": str(preproc_result.brain_extracted) if preproc_result.brain_extracted else None,
-            "registered": str(preproc_result.registered) if preproc_result.registered else None,
-            "segmentation": str(preproc_result.segmentation) if preproc_result.segmentation else None,
-            "morphometrics": preproc_result.morphometrics,
-            "errors": preproc_result.errors,
-        },
-    }
-
-    # Step 2: Brain Age prediction (if brain extraction succeeded)
-    if preproc_result.brain_extracted:
-        try:
-            predictor = BrainAgePredictor()
-            age_result = predictor.predict(
-                preproc_result.brain_extracted,
-                chronological_age=chronological_age,
-            )
-            result["brain_age"] = {
-                "predicted_age": round(age_result.predicted_age, 1),
-                "confidence": round(age_result.confidence, 3),
-                "brain_age_gap": round(age_result.brain_age_gap, 1) if age_result.brain_age_gap is not None else None,
-            }
-        except Exception as e:
-            result["brain_age"] = {"error": str(e)}
-
-    return result

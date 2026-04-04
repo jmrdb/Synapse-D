@@ -15,6 +15,11 @@ export default function Dashboard() {
 
   const brainAge = result?.result?.brain_age;
   const morpho = result?.result?.preprocessing?.morphometrics;
+  // Build NIfTI URL for Niivue from brain_extracted path
+  const brainPath = result?.result?.preprocessing?.brain_extracted;
+  const niftiUrl = brainPath
+    ? `/files/${brainPath.split("/processed/").pop()}`
+    : undefined;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "white", padding: "24px" }}>
@@ -31,6 +36,7 @@ export default function Dashboard() {
       <div style={{ maxWidth: "900px", margin: "0 auto", display: "grid", gap: "24px" }}>
         {/* 3D Brain Viewer */}
         <BrainViewer
+          niftiUrl={niftiUrl}
           brainAge={brainAge?.predicted_age}
           confidence={brainAge?.confidence}
         />
