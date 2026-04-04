@@ -6,13 +6,18 @@ to calculate z-scores (standard deviations from expected values for age/sex).
 Positive z-score = larger than expected for age (e.g., ventricular enlargement)
 Negative z-score = smaller than expected (e.g., hippocampal atrophy)
 
+Corrections applied:
+- ICV normalization: removes head-size-driven sex/ethnicity bias (Liu 2025)
+- Field strength correction: 1.5T→3T scaling (Reuter 2012, Pardoe 2013)
+  3T systematically overestimates vs 1.5T; norms are 3T-based.
+
 Reference values are derived from published large-scale studies:
 - Brain volume: Bethlehem et al., Nature 2022 (Lifespan Brain Chart)
 - Hippocampal volume: Nobis et al., NeuroImage 2019
 - Cortical thickness: Fjell et al., Cerebral Cortex 2015
+- Field strength: Reuter et al., NeuroImage 2012; Pardoe et al., HBM 2013
 
-These are approximate normative ranges for MVP. Phase 2 will integrate
-BrainStat for proper age-continuous normative modeling.
+Phase 2 will integrate BrainStat + neuroHarmonize for continuous modeling.
 """
 
 from dataclasses import dataclass, field
@@ -147,6 +152,50 @@ def _get_norm(
     return norms[decades[-1]]
 
 
+# Field strength correction factors: 1.5T → 3T equivalent scaling.
+# Normative tables are 3T-based (most large cohorts use 3T).
+# 3T systematically overestimates vs 1.5T due to higher SNR/contrast.
+# These factors scale 1.5T measurements UP to 3T-equivalent values.
+#
+# Source: Reuter et al., NeuroImage 2012 (cortical thickness ~+4.5%)
+#         Pardoe et al., Human Brain Mapping 2013 (hippocampus ~+5%)
+#         General literature consensus (brain volume ~+2%)
+_FIELD_STRENGTH_CORRECTION: dict[str, float] = {
+    "cortical_thickness": 1.045,   # 1.5T * 1.045 ≈ 3T equivalent
+    "hippocampus_volume": 1.05,    # 1.5T * 1.05 ≈ 3T equivalent
+    "brain_volume": 1.02,          # 1.5T * 1.02 ≈ 3T equivalent
+    "ventricle_volume": 0.98,      # Ventricles slightly smaller at 3T
+}
+
+
+def _apply_field_correction(
+    value: float, metric: str, field_strength_t: float
+) -> tuple[float, bool]:
+    """Apply field strength correction to normalize 1.5T values to 3T equivalent.
+
+    Normative reference tables are derived from 3T data (UK Biobank, HCP, etc.).
+    When input is from a 1.5T scanner, measurements are systematically lower
+    for most metrics. This correction scales 1.5T values up to 3T-equivalent.
+
+    No correction is applied for 3T data or unknown field strength.
+
+    Args:
+        value: Raw measurement value.
+        metric: Metric name matching _FIELD_STRENGTH_CORRECTION keys.
+        field_strength_t: Scanner field strength in Tesla.
+
+    Returns:
+        Tuple of (corrected_value, was_corrected).
+    """
+    if field_strength_t <= 0 or field_strength_t >= 2.5:
+        # 3T or unknown — no correction needed
+        return value, False
+
+    factor = _FIELD_STRENGTH_CORRECTION.get(metric, 1.0)
+    corrected = value * factor
+    return corrected, True
+
+
 def _interpret_z(z: float, metric_name: str) -> str:
     """Generate human-readable interpretation of a z-score."""
     abs_z = abs(z)
@@ -164,14 +213,21 @@ def compare_normative(
     morphometrics: dict,
     age: float,
     sex: str = "M",
+    field_strength_t: float = 0.0,
     subject_id: str = "",
 ) -> NormativeResult:
     """Compare individual morphometrics against age/sex norms.
+
+    Applies corrections for:
+    - ICV normalization (if available): removes sex/ethnicity head-size bias
+    - Field strength (1.5T→3T): norms are 3T-based, 1.5T values scaled up
+    - Sex-pooled vs sex-specific norms based on ICV availability
 
     Args:
         morphometrics: Summary dict from MorphometryResult.summary.
         age: Chronological age in years.
         sex: 'M' or 'F'.
+        field_strength_t: MRI field strength in Tesla (0=unknown, 1.5, 3.0).
         subject_id: For logging.
 
     Returns:
@@ -185,6 +241,7 @@ def compare_normative(
     result = NormativeResult(subject_id=subject_id, age=age, sex=sex)
     scores = []
     icv_available = "normalization_method" in morphometrics
+    field_corrected = False
 
     # Total brain volume — use ICV-normalized value if available.
     # ICV normalization removes sex/ethnicity head-size bias (Liu et al., 2025),
@@ -192,6 +249,8 @@ def compare_normative(
     vol_key = "total_brain_volume_normalized_cm3" if icv_available else "total_brain_volume_cm3"
     vol = morphometrics.get(vol_key) or morphometrics.get("total_brain_volume_cm3")
     if vol:
+        vol, fc = _apply_field_correction(vol, "brain_volume", field_strength_t)
+        field_corrected = field_corrected or fc
         if icv_available:
             mean, std = _get_norm(_BRAIN_VOLUME_NORMS_POOLED, age)
         else:
@@ -209,6 +268,8 @@ def compare_normative(
     hippo_key = "hippocampus_total_normalized_mm3" if icv_available else "hippocampus_total_mm3"
     hippo = morphometrics.get(hippo_key) or morphometrics.get("hippocampus_total_mm3")
     if hippo:
+        hippo, fc = _apply_field_correction(hippo, "hippocampus_volume", field_strength_t)
+        field_corrected = field_corrected or fc
         if icv_available:
             mean, std = _get_norm(_HIPPOCAMPUS_NORMS_POOLED, age)
         else:
@@ -223,8 +284,11 @@ def compare_normative(
         ))
 
     # Mean cortical thickness — NO ICV normalization (ethnicity-stable per Wisch 2025)
+    # But field strength correction IS needed (+4.5% at 3T vs 1.5T, Reuter 2012)
     thickness = morphometrics.get("mean_cortical_thickness_mm")
     if thickness:
+        thickness, fc = _apply_field_correction(thickness, "cortical_thickness", field_strength_t)
+        field_corrected = field_corrected or fc
         mean, std = _get_norm(_CORTICAL_THICKNESS_NORMS, age)
         z = (thickness - mean) / std if std > 0 else 0.0
         scores.append(NormativeScore(
@@ -252,6 +316,8 @@ def compare_normative(
             ],
             "overall_z_mean": round(float(np.mean(z_values)), 2),
             "icv_normalized": icv_available,
+            "field_strength_corrected": field_corrected,
+            "field_strength_t": field_strength_t if field_strength_t > 0 else None,
         }
         logger.info(f"[{subject_id}] Normative comparison: "
                     f"{len(scores)} metrics, mean z={np.mean(z_values):.2f}")

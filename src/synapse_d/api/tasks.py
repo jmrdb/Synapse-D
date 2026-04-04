@@ -97,10 +97,12 @@ def run_pipeline(
         try:
             from synapse_d.models.normative import compare_normative
 
+            field_t = preproc_result.scanner_info.get("field_strength_t", 0.0)
             norm_result = compare_normative(
                 morphometrics=preproc_result.morphometrics,
                 age=chronological_age,
                 sex=sex or "M",
+                field_strength_t=float(field_t),
                 subject_id=preproc_result.subject_id,
             )
             result["normative"] = norm_result.summary
