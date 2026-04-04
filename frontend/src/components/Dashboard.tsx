@@ -1,6 +1,7 @@
 /**
  * Brain Age Dashboard - main analysis results view.
- * Displays Brain Age prediction, morphometrics, and 3D visualization.
+ * Displays Brain Age prediction, morphometrics, normative comparison,
+ * and 3D brain visualization.
  */
 
 "use client";
@@ -8,6 +9,7 @@
 import { useState } from "react";
 import BrainViewer from "./BrainViewer";
 import MRIUploader from "./MRIUploader";
+import MorphometryCharts from "./MorphometryCharts";
 import type { AnalysisResult } from "@/lib/api";
 
 export default function Dashboard() {
@@ -15,8 +17,9 @@ export default function Dashboard() {
 
   const brainAge = result?.result?.brain_age;
   const morpho = result?.result?.preprocessing?.morphometrics;
-  // NIfTI URL from backend (already sanitized as relative URL)
+  const normative = result?.result?.normative;
   const niftiUrl = result?.result?.preprocessing?.brain_extracted_url;
+  const usedFallback = result?.result?.preprocessing?.used_fallback;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "white", padding: "24px" }}>
@@ -41,14 +44,16 @@ export default function Dashboard() {
         {/* Upload Section */}
         <MRIUploader onAnalysisComplete={setResult} />
 
-        {/* Results Cards */}
+        {/* Summary Cards */}
         {result?.result && (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
             {/* Brain Age Card */}
             {brainAge && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Predicted Brain Age</div>
-                <div style={cardValueStyle}>{brainAge.predicted_age} <span style={{ fontSize: "14px" }}>years</span></div>
+                <div style={cardValueStyle}>
+                  {brainAge.predicted_age} <span style={{ fontSize: "14px" }}>years</span>
+                </div>
                 <div style={{ fontSize: "12px", color: "#666" }}>
                   confidence: {(brainAge.confidence * 100).toFixed(1)}%
                 </div>
@@ -56,17 +61,20 @@ export default function Dashboard() {
             )}
 
             {/* Brain Age Gap Card */}
-            {brainAge?.brain_age_gap !== null && brainAge?.brain_age_gap !== undefined && (
+            {brainAge?.brain_age_gap != null && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Brain Age Gap</div>
                 <div style={{
                   ...cardValueStyle,
-                  color: brainAge.brain_age_gap > 3 ? "#ff6b6b" : brainAge.brain_age_gap < -3 ? "#51cf66" : "#ffd43b",
+                  color: brainAge.brain_age_gap > 3 ? "#ff6b6b"
+                    : brainAge.brain_age_gap < -3 ? "#51cf66" : "#ffd43b",
                 }}>
-                  {brainAge.brain_age_gap > 0 ? "+" : ""}{brainAge.brain_age_gap} <span style={{ fontSize: "14px" }}>years</span>
+                  {brainAge.brain_age_gap > 0 ? "+" : ""}{brainAge.brain_age_gap}
+                  <span style={{ fontSize: "14px" }}> years</span>
                 </div>
                 <div style={{ fontSize: "12px", color: "#666" }}>
-                  {brainAge.brain_age_gap > 3 ? "accelerated aging" : brainAge.brain_age_gap < -3 ? "resilient brain" : "normal range"}
+                  {brainAge.brain_age_gap > 3 ? "accelerated aging"
+                    : brainAge.brain_age_gap < -3 ? "resilient brain" : "normal range"}
                 </div>
               </div>
             )}
@@ -76,18 +84,65 @@ export default function Dashboard() {
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Brain Volume</div>
                 <div style={cardValueStyle}>
-                  {morpho.total_brain_volume_cm3.toFixed(0)} <span style={{ fontSize: "14px" }}>cm³</span>
+                  {morpho.total_brain_volume_cm3.toFixed(0)}
+                  <span style={{ fontSize: "14px" }}> cm³</span>
                 </div>
                 <div style={{ fontSize: "12px", color: "#666" }}>total intracranial</div>
+              </div>
+            )}
+
+            {/* Normative Overall Card */}
+            {normative?.overall_z_mean != null && (
+              <div style={cardStyle}>
+                <div style={cardLabelStyle}>Normative Score</div>
+                <div style={{
+                  ...cardValueStyle,
+                  color: Math.abs(normative.overall_z_mean) < 1 ? "#51cf66"
+                    : Math.abs(normative.overall_z_mean) < 2 ? "#ffd43b" : "#ff6b6b",
+                }}>
+                  {normative.overall_z_mean > 0 ? "+" : ""}
+                  {normative.overall_z_mean.toFixed(1)}
+                  <span style={{ fontSize: "14px" }}> z</span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#666" }}>
+                  mean deviation from age norm
+                </div>
               </div>
             )}
           </div>
         )}
 
+        {/* Morphometry Charts (subcortical volumes, z-scores, cortical thickness) */}
+        {result && <MorphometryCharts result={result} />}
+
+        {/* Fallback Warning */}
+        {usedFallback && (
+          <div style={{
+            background: "rgba(255,215,0,0.1)",
+            border: "1px solid #ffd43b33",
+            borderRadius: "8px",
+            padding: "12px",
+          }}>
+            <div style={{ fontSize: "12px", color: "#ffd43b", marginBottom: "4px" }}>
+              Development Mode
+            </div>
+            <div style={{ fontSize: "13px", color: "#ffe066" }}>
+              HD-BET 미설치로 근사 뇌 추출을 사용했습니다. 결과는 참고용이며 정확하지 않습니다.
+            </div>
+          </div>
+        )}
+
         {/* Pipeline Errors */}
         {result?.result?.preprocessing?.errors && result.result.preprocessing.errors.length > 0 && (
-          <div style={{ background: "rgba(255,107,107,0.1)", border: "1px solid #ff6b6b33", borderRadius: "8px", padding: "12px" }}>
-            <div style={{ fontSize: "12px", color: "#ff6b6b", marginBottom: "4px" }}>Pipeline Warnings</div>
+          <div style={{
+            background: "rgba(255,107,107,0.1)",
+            border: "1px solid #ff6b6b33",
+            borderRadius: "8px",
+            padding: "12px",
+          }}>
+            <div style={{ fontSize: "12px", color: "#ff6b6b", marginBottom: "4px" }}>
+              Pipeline Warnings
+            </div>
             {result.result.preprocessing.errors.map((err, i) => (
               <div key={i} style={{ fontSize: "13px", color: "#ff8787" }}>{err}</div>
             ))}

@@ -22,8 +22,15 @@ export interface AnalysisResult {
       brain_extracted_url?: string;
       registered_url?: string;
       segmentation_url?: string;
+      used_fallback?: boolean;
       morphometrics: {
         total_brain_volume_cm3?: number;
+        hippocampus_total_mm3?: number;
+        ventricle_total_mm3?: number;
+        mean_cortical_thickness_mm?: number;
+        subcortical_volumes?: Record<string, number>;
+        cortical_thickness_by_region?: Record<string, number>;
+        source?: string;
       };
       errors: string[];
     };
@@ -31,6 +38,16 @@ export interface AnalysisResult {
       predicted_age: number;
       confidence: number;
       brain_age_gap: number | null;
+    };
+    normative?: {
+      scores?: Array<{
+        metric: string;
+        value: number;
+        expected: number;
+        z_score: number;
+        interpretation: string;
+      }>;
+      overall_z_mean?: number;
     };
   };
   error?: string;

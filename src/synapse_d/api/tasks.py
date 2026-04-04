@@ -84,6 +84,20 @@ def run_pipeline(t1_path: Path, chronological_age: float | None = None) -> dict:
         except Exception as e:
             result["brain_age"] = {"error": str(e)}
 
+    # Step 3: Normative comparison (if age provided and morphometrics available)
+    if chronological_age and preproc_result.morphometrics:
+        try:
+            from synapse_d.models.normative import compare_normative
+
+            norm_result = compare_normative(
+                morphometrics=preproc_result.morphometrics,
+                age=chronological_age,
+                subject_id=preproc_result.subject_id,
+            )
+            result["normative"] = norm_result.summary
+        except Exception as e:
+            result["normative"] = {"error": str(e)}
+
     return result
 
 

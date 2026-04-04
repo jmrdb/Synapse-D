@@ -157,8 +157,16 @@ class PreprocessingPipeline:
         else:
             result.errors.append("Segmentation failed")
 
-        # Step 4: Extract morphometrics
-        result.morphometrics = self._extract_morphometrics(result, subject_id)
+        # Step 4: Extract morphometrics (FastSurfer stats or mask-based fallback)
+        from synapse_d.pipeline.morphometry import extract_morphometry
+
+        fs_subject_dir = None
+        if result.segmentation:
+            # FastSurfer output: processed/sub-xx/fastsurfer/sub-xx/
+            fs_subject_dir = result.segmentation.parent.parent
+
+        morph = extract_morphometry(fs_subject_dir, result.brain_mask, subject_id)
+        result.morphometrics = morph.summary
 
         # Minimum success condition: brain extraction must succeed.
         # Registration and segmentation failures are non-fatal —
@@ -310,29 +318,3 @@ class PreprocessingPipeline:
                 return seg_path
         return None
 
-    def _extract_morphometrics(
-        self, result: PreprocessingResult, subject_id: str
-    ) -> dict:
-        """Extract basic morphometric measurements from pipeline outputs.
-
-        Args:
-            result: Current preprocessing result with output paths.
-            subject_id: For logging.
-
-        Returns:
-            Dict of morphometric measurements.
-        """
-        metrics = {}
-
-        # Brain volume from mask
-        if result.brain_mask and result.brain_mask.exists():
-            mask_img = nib.load(str(result.brain_mask))
-            mask_data = np.asanyarray(mask_img.dataobj)
-            voxel_vol = np.prod(mask_img.header.get_zooms()[:3])
-            brain_vol_mm3 = float(np.sum(mask_data > 0) * voxel_vol)
-            metrics["total_brain_volume_mm3"] = brain_vol_mm3
-            metrics["total_brain_volume_cm3"] = brain_vol_mm3 / 1000.0
-            logger.info(f"[{subject_id}] Brain volume: "
-                        f"{metrics['total_brain_volume_cm3']:.1f} cm³")
-
-        return metrics
