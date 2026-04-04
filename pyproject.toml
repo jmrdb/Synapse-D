@@ -16,8 +16,6 @@ authors = [
 dependencies = [
     # Core
     "numpy>=1.24",
-    "scipy>=1.10",
-    "pandas>=2.0",
     "nibabel>=5.0",
     # API
     "fastapi>=0.110",

@@ -11,12 +11,17 @@ export interface UploadResponse {
   size_mb: number;
 }
 
+export type JobStatus = "pending" | "processing" | "submitted" | "completed" | "failed";
+
 export interface AnalysisResult {
   job_id: string;
-  status: string;
+  status: JobStatus;
   result?: {
     preprocessing: {
       success: boolean;
+      brain_extracted_url?: string;
+      registered_url?: string;
+      segmentation_url?: string;
       morphometrics: {
         total_brain_volume_cm3?: number;
       };
@@ -28,6 +33,8 @@ export interface AnalysisResult {
       brain_age_gap: number | null;
     };
   };
+  error?: string;
+  detail?: string;
 }
 
 export async function uploadMRI(file: File): Promise<UploadResponse> {
@@ -44,7 +51,7 @@ export async function uploadMRI(file: File): Promise<UploadResponse> {
 export async function startAnalysis(
   subjectId: string,
   age?: number
-): Promise<{ job_id: string; status: string }> {
+): Promise<AnalysisResult> {
   const params = age ? `?chronological_age=${age}` : "";
   const res = await fetch(`${API_BASE}/analyze/${subjectId}${params}`, {
     method: "POST",
@@ -61,5 +68,6 @@ export async function getResults(jobId: string): Promise<AnalysisResult> {
 
 export async function healthCheck(): Promise<{ status: string; version: string }> {
   const res = await fetch("/health");
+  if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
   return res.json();
 }

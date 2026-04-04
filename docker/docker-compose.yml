@@ -12,7 +12,9 @@ services:
       - ../data:/app/data
       - ../src:/app/src
     environment:
+      - SYNAPSE_DATA_DIR=/app/data
       - SYNAPSE_DEVICE=${SYNAPSE_DEVICE:-cpu}
+      - SYNAPSE_CORS_ORIGINS=["http://localhost:3000"]
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
       - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
     depends_on:

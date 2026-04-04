@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     debug: bool = False
+    cors_origins: list[str] = ["http://localhost:3000"]
 
     # Celery
     celery_broker_url: str = "redis://localhost:6379/0"
@@ -49,10 +50,6 @@ class Settings(BaseSettings):
 
     # GPU
     device: str = "cpu"
-
-    # Pipeline
-    mni_template: str = "MNI152_T1_1mm"
-    fastsurfer_sid_prefix: str = "synapse"
 
     model_config = {"env_prefix": "SYNAPSE_"}
 

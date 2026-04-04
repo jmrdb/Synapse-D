@@ -23,7 +23,7 @@ import numpy as np
 from loguru import logger
 
 from synapse_d.config import settings
-from synapse_d.utils.bids import get_subject_id, get_voxel_info, make_output_dir
+from synapse_d.utils.bids import get_subject_id, get_voxel_info, load_nifti, make_output_dir
 
 
 @dataclass
@@ -84,7 +84,7 @@ class PreprocessingPipeline:
 
         # Validate input
         try:
-            img = nib.load(str(t1_path))
+            img = load_nifti(t1_path)
             info = get_voxel_info(img)
             logger.info(f"[{subject_id}] Volume: shape={info['shape']}, "
                         f"voxel={info['voxel_size']}")
@@ -119,8 +119,13 @@ class PreprocessingPipeline:
         # Step 4: Extract morphometrics
         result.morphometrics = self._extract_morphometrics(result, subject_id)
 
+        # Minimum success condition: brain extraction must succeed.
+        # Registration and segmentation failures are non-fatal —
+        # Brain Age prediction only requires the extracted brain volume.
         result.success = result.brain_extracted is not None
         status = "SUCCESS" if result.success else "FAILED"
+        if result.success and result.errors:
+            status = "PARTIAL"
         logger.info(f"[{subject_id}] Pipeline {status} "
                     f"(errors: {len(result.errors)})")
         return result

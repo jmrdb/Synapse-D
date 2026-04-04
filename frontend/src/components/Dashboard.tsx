@@ -15,11 +15,8 @@ export default function Dashboard() {
 
   const brainAge = result?.result?.brain_age;
   const morpho = result?.result?.preprocessing?.morphometrics;
-  // Build NIfTI URL for Niivue from brain_extracted path
-  const brainPath = result?.result?.preprocessing?.brain_extracted;
-  const niftiUrl = brainPath
-    ? `/files/${brainPath.split("/processed/").pop()}`
-    : undefined;
+  // NIfTI URL from backend (already sanitized as relative URL)
+  const niftiUrl = result?.result?.preprocessing?.brain_extracted_url;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "white", padding: "24px" }}>

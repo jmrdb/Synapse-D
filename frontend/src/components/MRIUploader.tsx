@@ -32,14 +32,35 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
       const upload = await uploadMRI(file);
       setMessage(`업로드 완료 (${upload.size_mb} MB). 분석 시작...`);
 
-      // Analyze
+      // Analyze (async — Celery worker processes in background)
       setStatus("analyzing");
       const chronoAge = age ? parseFloat(age) : undefined;
       const job = await startAnalysis(upload.subject_id, chronoAge);
-      setMessage("전처리 파이프라인 실행 중...");
 
-      // Get results
-      const result = await getResults(job.job_id);
+      // If already completed (sync fallback), skip polling
+      if (job.status === "completed") {
+        setStatus("done");
+        setMessage("분석 완료");
+        onAnalysisComplete(job as AnalysisResult);
+        return;
+      }
+
+      // Poll for results until done
+      setMessage("전처리 파이프라인 실행 중...");
+      let result: AnalysisResult;
+      while (true) {
+        await new Promise((r) => setTimeout(r, 2000));
+        result = await getResults(job.job_id);
+        if (result.status === "completed" || result.status === "failed") break;
+        if (result.status === "processing") {
+          setMessage("뇌 영상 분석 중...");
+        }
+      }
+
+      if (result.status === "failed") {
+        throw new Error("분석 실패");
+      }
+
       setStatus("done");
       setMessage("분석 완료");
       onAnalysisComplete(result);

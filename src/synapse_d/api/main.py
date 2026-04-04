@@ -7,6 +7,7 @@ Job state is managed via Celery's Redis result backend instead of
 in-memory dicts, so state survives API server restarts.
 """
 
+import re
 import uuid
 from pathlib import Path
 
@@ -17,6 +18,12 @@ from fastapi.staticfiles import StaticFiles
 from synapse_d import __version__
 from synapse_d.config import settings
 
+# Upload size limit: 2GB (T1w MRI typically 10-200MB)
+MAX_UPLOAD_BYTES = 2 * 1024 * 1024 * 1024
+
+# Subject ID format: sub- followed by exactly 8 hex chars
+_SUBJECT_ID_RE = re.compile(r"^sub-[a-f0-9]{8}$")
+
 app = FastAPI(
     title="Synapse-D Brain Digital Twin API",
     description="Structural MRI-based brain development and degeneration prediction",
@@ -25,7 +32,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -34,6 +41,56 @@ app.add_middleware(
 # Serve processed NIfTI files for Niivue frontend rendering
 settings.output_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/files", StaticFiles(directory=str(settings.output_dir)), name="files")
+
+
+def _validate_subject_id(subject_id: str) -> str:
+    """Validate subject_id format to prevent path traversal attacks.
+
+    Args:
+        subject_id: Must match 'sub-[a-f0-9]{8}'.
+
+    Raises:
+        HTTPException: 400 if format is invalid.
+    """
+    if not _SUBJECT_ID_RE.match(subject_id):
+        raise HTTPException(status_code=400, detail="Invalid subject_id format")
+    return subject_id
+
+
+def _run_sync(t1_path: Path, chronological_age: float | None) -> dict:
+    """Execute pipeline synchronously and return unified response.
+
+    Used for sync=True requests and Celery fallback.
+    """
+    from synapse_d.api.tasks import run_pipeline
+
+    result = run_pipeline(t1_path, chronological_age)
+    return {
+        "job_id": uuid.uuid4().hex[:12],
+        "status": "completed",
+        "result": _sanitize_result(result),
+    }
+
+
+def _sanitize_result(result: dict) -> dict:
+    """Remove server-internal paths from pipeline results.
+
+    Converts absolute paths to relative URLs for frontend consumption.
+    """
+    preproc = result.get("preprocessing", {})
+    output_dir_str = str(settings.output_dir)
+
+    for key in ("brain_extracted", "registered", "segmentation"):
+        path_str = preproc.get(key)
+        if path_str and output_dir_str in path_str:
+            # Convert "/app/data/processed/sub-xx/anat/file.nii.gz"
+            # to "/files/sub-xx/anat/file.nii.gz"
+            relative = path_str.split(output_dir_str)[-1].lstrip("/")
+            preproc[f"{key}_url"] = f"/files/{relative}"
+        preproc.pop(key, None)  # Remove absolute path
+
+    result["preprocessing"] = preproc
+    return result
 
 
 @app.get("/health")
@@ -46,12 +103,16 @@ async def health_check():
 async def upload_mri(file: UploadFile = File(...)):
     """Upload a T1-weighted MRI NIfTI file.
 
-    Accepts .nii or .nii.gz files. Returns a subject_id for tracking.
+    Accepts .nii or .nii.gz files (max 2GB). Returns a subject_id for tracking.
     """
     if not file.filename or not (
         file.filename.endswith(".nii") or file.filename.endswith(".nii.gz")
     ):
         raise HTTPException(status_code=400, detail="Only .nii or .nii.gz files accepted")
+
+    content = await file.read()
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="File too large (max 2GB)")
 
     subject_id = f"sub-{uuid.uuid4().hex[:8]}"
     subject_dir = settings.upload_dir / subject_id / "anat"
@@ -59,15 +120,12 @@ async def upload_mri(file: UploadFile = File(...)):
 
     suffix = ".nii.gz" if file.filename.endswith(".nii.gz") else ".nii"
     save_path = subject_dir / f"{subject_id}_T1w{suffix}"
-
-    content = await file.read()
     save_path.write_bytes(content)
 
     return {
         "subject_id": subject_id,
         "filename": file.filename,
         "size_mb": round(len(content) / 1024 / 1024, 2),
-        "path": str(save_path),
     }
 
 
@@ -81,12 +139,9 @@ async def start_analysis(
 
     By default dispatches to Celery worker (async). If Redis/Celery is
     unavailable or sync=True, falls back to synchronous execution.
-
-    Args:
-        subject_id: Subject ID from upload response.
-        chronological_age: Optional actual age for Brain Age Gap.
-        sync: Force synchronous execution (for testing/dev).
     """
+    _validate_subject_id(subject_id)
+
     subject_dir = settings.upload_dir / subject_id / "anat"
     if not subject_dir.exists():
         raise HTTPException(status_code=404, detail=f"Subject {subject_id} not found")
@@ -97,13 +152,9 @@ async def start_analysis(
 
     t1_path = nifti_files[0]
 
+    # Synchronous execution (dev/test or Celery unavailable)
     if sync:
-        # Synchronous execution (dev/test mode)
-        from synapse_d.api.tasks import run_pipeline
-
-        result = run_pipeline(t1_path, chronological_age)
-        job_id = uuid.uuid4().hex[:12]
-        return {"job_id": job_id, "status": "completed", "result": result}
+        return _run_sync(t1_path, chronological_age)
 
     # Async execution via Celery
     try:
@@ -112,12 +163,7 @@ async def start_analysis(
         task = analyze_mri_task.delay(str(t1_path), chronological_age)
         return {"job_id": task.id, "status": "submitted"}
     except Exception:
-        # Celery/Redis unavailable — fallback to sync
-        from synapse_d.api.tasks import run_pipeline
-
-        result = run_pipeline(t1_path, chronological_age)
-        job_id = uuid.uuid4().hex[:12]
-        return {"job_id": job_id, "status": "completed", "result": result}
+        return _run_sync(t1_path, chronological_age)
 
 
 @app.get("/api/v1/results/{job_id}")
@@ -125,7 +171,6 @@ async def get_results(job_id: str):
     """Get analysis results for a job.
 
     Checks Celery result backend (Redis) for job state and results.
-    Possible statuses: PENDING, PREPROCESSING, SUCCESS, FAILURE.
     """
     try:
         from synapse_d.api.tasks import celery_app
@@ -146,7 +191,7 @@ async def get_results(job_id: str):
         return {
             "job_id": job_id,
             "status": "completed",
-            "result": task_result.result,
+            "result": _sanitize_result(task_result.result),
         }
     elif task_result.state == "FAILURE":
         return {
@@ -164,7 +209,7 @@ async def list_subjects():
     subjects = []
     if settings.upload_dir.exists():
         for d in sorted(settings.upload_dir.iterdir()):
-            if d.is_dir() and d.name.startswith("sub-"):
+            if d.is_dir() and _SUBJECT_ID_RE.match(d.name):
                 has_t1 = (
                     bool(list((d / "anat").glob("*_T1w*")))
                     if (d / "anat").exists()

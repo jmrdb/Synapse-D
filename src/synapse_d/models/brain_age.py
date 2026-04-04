@@ -245,18 +245,6 @@ class BrainAgePredictor:
             Cropped/padded array of target_shape.
         """
         result = np.zeros(target_shape, dtype=data.dtype)
-        for i in range(3):
-            src_size = data.shape[i]
-            tgt_size = target_shape[i]
-            if src_size >= tgt_size:
-                start = (src_size - tgt_size) // 2
-                # Build slicing for source
-                src_slice = [slice(None)] * 3
-                src_slice[i] = slice(start, start + tgt_size)
-            else:
-                src_slice = [slice(None)] * 3
-
-        # Simpler approach: crop/pad each axis
         starts_src = []
         starts_tgt = []
         sizes = []

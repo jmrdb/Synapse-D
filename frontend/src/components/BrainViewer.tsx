@@ -2,9 +2,6 @@
  * Brain viewer component with two modes:
  * 1. NiivueViewer: Renders actual NIfTI files using Niivue (after analysis)
  * 2. PlaceholderViewer: Three.js brain mesh (before analysis)
- *
- * Niivue handles WebGL2-based volume rendering of .nii.gz files served
- * from the backend's /files endpoint.
  */
 
 "use client";
@@ -13,26 +10,33 @@ import { useEffect, useRef, useState } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
 
+type ViewMode = "3d" | "axial" | "sagittal" | "coronal";
+
 interface BrainViewerProps {
-  /** URL to a NIfTI file (e.g. /files/sub-01/anat/sub-01_T1w_brain.nii.gz) */
   niftiUrl?: string;
   brainAge?: number;
   confidence?: number;
 }
 
 /** Actual NIfTI renderer using Niivue (WebGL2 volume rendering) */
-function NiivueViewer({ niftiUrl }: { niftiUrl: string }) {
+function NiivueViewer({ niftiUrl, viewMode }: { niftiUrl: string; viewMode: ViewMode }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nvRef = useRef<any>(null);
 
+  // Initialize Niivue on mount or niftiUrl change
   useEffect(() => {
     let mounted = true;
 
     async function initNiivue() {
-      // Dynamic import — Niivue uses WebGL2 which requires browser context
       const { Niivue } = await import("@niivue/niivue");
 
       if (!mounted || !canvasRef.current) return;
+
+      // Dispose previous instance to prevent WebGL context leak
+      if (nvRef.current) {
+        nvRef.current.dispose?.();
+        nvRef.current = null;
+      }
 
       const nv = new Niivue({
         backColor: [0.1, 0.1, 0.15, 1],
@@ -40,10 +44,8 @@ function NiivueViewer({ niftiUrl }: { niftiUrl: string }) {
         isOrientCube: true,
       });
       nv.attachToCanvas(canvasRef.current);
-
-      // Load the NIfTI file from backend
       await nv.loadVolumes([{ url: niftiUrl, colormap: "gray" }]);
-      nv.setSliceType(nv.sliceTypeRender); // 3D rendering mode
+      nv.setSliceType(nv.sliceTypeRender);
 
       nvRef.current = nv;
     }
@@ -52,8 +54,26 @@ function NiivueViewer({ niftiUrl }: { niftiUrl: string }) {
 
     return () => {
       mounted = false;
+      if (nvRef.current) {
+        nvRef.current.dispose?.();
+        nvRef.current = null;
+      }
     };
   }, [niftiUrl]);
+
+  // Update slice type when viewMode changes
+  useEffect(() => {
+    const nv = nvRef.current;
+    if (!nv) return;
+
+    const modeMap: Record<ViewMode, number> = {
+      "3d": nv.sliceTypeRender,
+      axial: nv.sliceTypeAxial,
+      sagittal: nv.sliceTypeSagittal,
+      coronal: nv.sliceTypeCoronal,
+    };
+    nv.setSliceType(modeMap[viewMode] ?? nv.sliceTypeRender);
+  }, [viewMode]);
 
   return (
     <canvas
@@ -80,17 +100,13 @@ function PlaceholderBrain() {
           opacity={0.85}
         />
       </mesh>
-      <mesh position={[0, 0.1, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <planeGeometry args={[3.2, 0.02]} />
-        <meshBasicMaterial color="#c49498" />
-      </mesh>
       <OrbitControls enablePan={false} minDistance={3} maxDistance={8} />
     </Canvas>
   );
 }
 
 export default function BrainViewer({ niftiUrl, brainAge, confidence }: BrainViewerProps) {
-  const [viewMode, setViewMode] = useState<"3d" | "axial" | "sagittal" | "coronal">("3d");
+  const [viewMode, setViewMode] = useState<ViewMode>("3d");
 
   return (
     <div style={{
@@ -101,7 +117,7 @@ export default function BrainViewer({ niftiUrl, brainAge, confidence }: BrainVie
       position: "relative",
       overflow: "hidden",
     }}>
-      {/* View mode buttons (only when NIfTI is loaded) */}
+      {/* View mode buttons */}
       {niftiUrl && (
         <div style={{
           position: "absolute",
@@ -132,9 +148,8 @@ export default function BrainViewer({ niftiUrl, brainAge, confidence }: BrainVie
         </div>
       )}
 
-      {/* Render NIfTI or placeholder */}
       {niftiUrl ? (
-        <NiivueViewer niftiUrl={niftiUrl} />
+        <NiivueViewer niftiUrl={niftiUrl} viewMode={viewMode} />
       ) : (
         <PlaceholderBrain />
       )}
@@ -163,7 +178,6 @@ export default function BrainViewer({ niftiUrl, brainAge, confidence }: BrainVie
         </div>
       )}
 
-      {/* No data hint */}
       {!niftiUrl && !brainAge && (
         <div style={{
           position: "absolute",
