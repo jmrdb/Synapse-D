@@ -1,3 +1,5 @@
+name: synapse-d
+
 services:
   # FastAPI Backend
   api:
