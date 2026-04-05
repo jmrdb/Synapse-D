@@ -94,10 +94,10 @@ def verify_identity(
     except Exception as e:
         logger.error(f"[{subject_id}] Identity verification failed: {e}")
         return IdentityCheckResult(
-            is_same_subject=True,  # Fail-open: allow on error
+            is_same_subject=False,  # Fail-closed: reject on error for data safety
             ncc_score=0.0,
-            confidence="low",
-            message=f"검증 실패 (기술적 오류): {e}",
+            confidence="error",
+            message=f"동일인 검증 실패: 기술적 오류 발생. 수동 확인이 필요합니다.",
             aligned=False,
         )
 
@@ -134,6 +134,15 @@ def _align_and_load(
 
         new_data = aligned_new.numpy().flatten().astype(np.float32)
         ref_data = ref_ants.numpy().flatten().astype(np.float32)
+
+        # Free ANTs objects immediately to reduce memory pressure
+        del ref_ants, new_ants, reg, aligned_new
+
+        # Validate ANTs output — registration can "succeed" but produce garbage
+        if np.all(new_data == 0) or np.any(np.isnan(new_data)):
+            logger.warning(f"[{subject_id}] ANTs produced invalid output, "
+                           f"falling back to header-based alignment")
+            return _header_based_align(new_path, ref_path, subject_id)
 
         logger.info(f"[{subject_id}] Identity check: ANTs rigid alignment applied")
         return new_data, ref_data, True
@@ -176,12 +185,11 @@ def _header_based_align(
         logger.info(f"[{subject_id}] Identity check: header-based resampling applied")
         return new_data, ref_data, False
     except Exception as e:
-        # Last resort: simple flatten and crop
-        logger.warning(f"[{subject_id}] Resampling failed ({e}), using raw comparison")
-        new_data = np.asanyarray(nib.load(str(new_path)).dataobj, dtype=np.float32).flatten()
-        ref_data = np.asanyarray(nib.load(str(ref_path)).dataobj, dtype=np.float32).flatten()
-        min_len = min(len(new_data), len(ref_data))
-        return new_data[:min_len], ref_data[:min_len], False
+        # Resampling failed — cannot safely compare without alignment
+        raise ValueError(
+            f"Cannot align volumes for identity comparison: {e}. "
+            f"Neither ANTs nor nibabel resampling succeeded."
+        ) from e
 
 
 def _classify_result(
@@ -241,7 +249,11 @@ def find_reference_brain(subject_id: str) -> Path | None:
     if not subject_dir.exists():
         return None
 
-    brain_files = sorted(subject_dir.glob("*_brain.nii.gz"), reverse=True)
+    brain_files = sorted(
+        subject_dir.glob("*_brain.nii.gz"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,
+    )
     return brain_files[0] if brain_files else None
 
 
@@ -252,7 +264,11 @@ def _normalized_cross_correlation(a: np.ndarray, b: np.ndarray) -> float:
     Range: 0 to 1 (1 = identical).
     """
     mask = (a > 0) & (b > 0)
-    if mask.sum() < 1000:
+    overlap = int(mask.sum())
+    total = max(len(a), len(b))
+    if overlap < 1000 or (total > 0 and overlap / total < 0.1):
+        logger.warning(f"Brain mask overlap too small: {overlap}/{total} "
+                       f"({overlap/total:.1%})" if total > 0 else "Empty volumes")
         return 0.0
 
     a_m = a[mask]
@@ -265,4 +281,4 @@ def _normalized_cross_correlation(a: np.ndarray, b: np.ndarray) -> float:
         return 0.0
 
     ncc = float(np.mean((a_m - a_mean) * (b_m - b_mean)) / (a_std * b_std))
-    return max(0.0, ncc)
+    return float(np.clip(ncc, 0.0, 1.0))
