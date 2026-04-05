@@ -123,6 +123,18 @@ def run_pipeline(
         except Exception as e:
             result["normative"] = {"error": str(e)}
 
+    # Step 4: Save longitudinal timepoint (auto-accumulate for time series)
+    try:
+        from synapse_d.models.longitudinal import save_timepoint
+
+        save_timepoint(
+            subject_id=preproc_result.subject_id,
+            analysis_result=result,
+            age_at_scan=chronological_age,
+        )
+    except Exception as e:
+        logger.warning(f"Failed to save longitudinal timepoint: {e}")
+
     return result
 
 

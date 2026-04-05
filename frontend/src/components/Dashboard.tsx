@@ -8,12 +8,15 @@
 
 import { useState } from "react";
 import BrainViewer from "./BrainViewer";
+import LongitudinalChart from "./LongitudinalChart";
 import MRIUploader from "./MRIUploader";
 import MorphometryCharts from "./MorphometryCharts";
 import type { AnalysisResult } from "@/lib/api";
 
 export default function Dashboard() {
   const [result, setResult] = useState<AnalysisResult | null>(null);
+  const [subjectId, setSubjectId] = useState<string | null>(null);
+  const [longitudinalKey, setLongitudinalKey] = useState(0);
 
   const brainAge = result?.result?.brain_age;
   const morpho = result?.result?.preprocessing?.morphometrics;
@@ -45,7 +48,15 @@ export default function Dashboard() {
         />
 
         {/* Upload Section */}
-        <MRIUploader onAnalysisComplete={setResult} />
+        <MRIUploader onAnalysisComplete={(r) => {
+          setResult(r);
+          // Extract subject_id from result to enable longitudinal tracking
+          const sid = r.result?.preprocessing?.brain_extracted_url?.split("/")[2];
+          if (sid) {
+            setSubjectId(sid);
+            setLongitudinalKey((k) => k + 1); // Force re-fetch
+          }
+        }} />
 
         {/* Summary Cards */}
         {result?.result && (
@@ -169,6 +180,11 @@ export default function Dashboard() {
 
         {/* Morphometry Charts */}
         {result && <MorphometryCharts result={result} />}
+
+        {/* Longitudinal Tracking */}
+        {subjectId && (
+          <LongitudinalChart key={longitudinalKey} subjectId={subjectId} />
+        )}
 
         {/* Fallback Warning */}
         {usedFallback && (

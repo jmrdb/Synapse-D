@@ -226,3 +226,23 @@ async def list_subjects():
                 )
                 subjects.append({"subject_id": d.name, "has_t1": has_t1})
     return {"subjects": subjects}
+
+
+@app.get("/api/v1/longitudinal/{subject_id}")
+async def get_longitudinal_data(subject_id: str):
+    """Get longitudinal analysis data for a subject.
+
+    Returns time-series data for brain volume, hippocampal volume,
+    cortical thickness, and Brain Age Gap across all analysis sessions.
+    Includes annualized change rates and comparison against expected aging.
+    """
+    _validate_subject_id(subject_id)
+
+    from synapse_d.models.longitudinal import get_longitudinal
+
+    result = get_longitudinal(subject_id)
+    return {
+        "subject_id": subject_id,
+        "timepoint_count": len(result.timepoints),
+        "summary": result.summary,
+    }

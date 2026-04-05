@@ -97,6 +97,36 @@ export async function getResults(jobId: string): Promise<AnalysisResult> {
   return res.json();
 }
 
+export interface LongitudinalData {
+  subject_id: string;
+  timepoint_count: number;
+  summary: {
+    timepoint_count: number;
+    baseline_date?: string;
+    latest_date?: string;
+    interval_years?: number;
+    message?: string;
+    overall_assessment?: string;
+    series?: Record<string, Array<{ date: string; age: number; value: number }>>;
+    changes?: Array<{
+      metric: string;
+      baseline_value: number;
+      latest_value: number;
+      absolute_change: number;
+      percent_change: number;
+      annualized_change: number;
+      interval_years: number;
+      interpretation: string;
+    }>;
+  };
+}
+
+export async function getLongitudinal(subjectId: string): Promise<LongitudinalData> {
+  const res = await fetch(`${API_BASE}/longitudinal/${subjectId}`);
+  if (!res.ok) throw new Error(`Longitudinal data fetch failed: ${res.statusText}`);
+  return res.json();
+}
+
 export async function healthCheck(): Promise<{ status: string; version: string }> {
   const res = await fetch("/health");
   if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);
