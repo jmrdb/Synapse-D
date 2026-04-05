@@ -178,11 +178,20 @@ def run_pipeline(
         except Exception as e:
             result["normative"] = {"error": str(e)}
 
-    # Step 5: Structural connectome generation
+    # Step 5: Structural connectome generation (dMRI tractography or synthetic)
     try:
         from synapse_d.pipeline.connectome import generate_connectome
 
+        # Search for dMRI data in subject's upload directory
+        dwi_path = None
+        if t1_path:
+            dwi_dir = Path(str(t1_path)).parent.parent / "dwi"
+            dwi_files = list(dwi_dir.glob("*_dwi.nii.gz")) if dwi_dir.exists() else []
+            if dwi_files:
+                dwi_path = dwi_files[0]
+
         connectome = generate_connectome(
+            dwi_path=dwi_path,
             morphometrics=preproc_result.morphometrics,
             subject_id=preproc_result.subject_id,
         )

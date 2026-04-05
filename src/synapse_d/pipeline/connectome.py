@@ -138,12 +138,171 @@ def generate_connectome(
 
 
 def _tractography_connectome(dwi_path: Path, subject_id: str) -> np.ndarray:
-    """Generate connectome via dMRI tractography.
+    """Generate structural connectome via dMRI tractography using dipy.
 
-    Placeholder — requires dipy + bvals/bvecs files.
-    Full implementation planned for Phase 3.
+    Pipeline:
+        1. Load dMRI + bvals/bvecs
+        2. Fit diffusion tensor model (DTI)
+        3. Compute fractional anisotropy (FA) for stopping criterion
+        4. Deterministic fiber tracking (EuDX)
+        5. Build connectivity matrix from streamline endpoints
+
+    Uses a simplified parcellation (axial slabs) for the connectivity matrix
+    since FreeSurfer parcellation requires T1 segmentation. Future: integrate
+    with FastSurfer segmentation for anatomically precise connectome.
+
+    Args:
+        dwi_path: Path to dMRI NIfTI file (.nii.gz).
+        subject_id: For logging.
+
+    Returns:
+        N_REGIONS x N_REGIONS symmetric connectivity matrix.
     """
-    raise NotImplementedError("Full tractography requires dipy + bvals/bvecs files")
+    from dipy.core.gradients import gradient_table
+    from dipy.io.gradients import read_bvals_bvecs
+    from dipy.reconst.dti import TensorModel
+    from dipy.tracking.stopping_criterion import ThresholdStoppingCriterion
+    from dipy.tracking.local_tracking import LocalTracking
+    from dipy.tracking.streamline import Streamlines
+    from dipy.direction import peaks_from_model
+    from dipy.reconst.csdeconv import auto_response_ssst
+    from dipy.reconst.shm import CsaOdfModel
+    import nibabel as nib
+
+    # Find bvals/bvecs (BIDS convention: same directory, same prefix)
+    dwi_dir = dwi_path.parent
+    stem = dwi_path.name.replace(".nii.gz", "").replace(".nii", "")
+    bval_path = dwi_dir / f"{stem}.bval"
+    bvec_path = dwi_dir / f"{stem}.bvec"
+
+    if not bval_path.exists() or not bvec_path.exists():
+        raise FileNotFoundError(
+            f"bvals/bvecs not found: {bval_path}, {bvec_path}"
+        )
+
+    logger.info(f"[{subject_id}] Loading dMRI: {dwi_path.name}")
+
+    # Step 1: Load data
+    img = nib.load(str(dwi_path))
+    data = np.asanyarray(img.dataobj)
+    affine = img.affine
+    bvals, bvecs = read_bvals_bvecs(str(bval_path), str(bvec_path))
+    gtab = gradient_table(bvals, bvecs)
+
+    logger.info(f"[{subject_id}] dMRI: shape={data.shape}, "
+                f"b-values={np.unique(bvals.astype(int))}, "
+                f"{len(bvals)} directions")
+
+    # Step 2: Fit DTI model for FA map
+    logger.info(f"[{subject_id}] Fitting DTI model...")
+    tensor_model = TensorModel(gtab)
+    tensor_fit = tensor_model.fit(data)
+    fa = tensor_fit.fa.copy()
+    fa[np.isnan(fa)] = 0
+
+    # Step 3: Create brain mask from FA
+    mask = fa > 0.1
+
+    # Step 4: Compute peaks for tracking (CSA-ODF model)
+    logger.info(f"[{subject_id}] Computing fiber orientations...")
+    from dipy.data import default_sphere
+    csa_model = CsaOdfModel(gtab, sh_order_max=6)
+    csa_peaks = peaks_from_model(
+        csa_model, data, sphere=default_sphere,
+        relative_peak_threshold=0.5,
+        min_separation_angle=25,
+        mask=mask,
+    )
+
+    # Step 5: Deterministic tracking
+    logger.info(f"[{subject_id}] Running fiber tracking...")
+    stopping_criterion = ThresholdStoppingCriterion(fa, 0.15)
+
+    # Seed from high-FA voxels
+    from dipy.tracking.utils import seeds_from_mask
+    seeds = seeds_from_mask(fa > 0.3, affine, density=1)
+    logger.info(f"[{subject_id}] Seeds: {len(seeds)}")
+
+    streamline_gen = LocalTracking(
+        csa_peaks, stopping_criterion, seeds, affine,
+        step_size=0.5, max_cross=1,
+    )
+    streamlines = Streamlines(streamline_gen)
+    n_streamlines = len(streamlines)
+    logger.info(f"[{subject_id}] Generated {n_streamlines} streamlines")
+
+    if n_streamlines < 100:
+        raise ValueError(f"Too few streamlines ({n_streamlines}) for connectome")
+
+    # Step 6: Build connectivity matrix
+    # Create a simplified parcellation by dividing the brain into N_REGIONS zones
+    # based on spatial coordinates (since we don't have FreeSurfer parcellation)
+    matrix = _streamlines_to_matrix(streamlines, data.shape[:3], affine)
+
+    logger.info(f"[{subject_id}] Tractography connectome built: "
+                f"{n_streamlines} streamlines → {N_REGIONS}x{N_REGIONS} matrix")
+    return matrix
+
+
+def _streamlines_to_matrix(
+    streamlines, volume_shape: tuple, affine: np.ndarray
+) -> np.ndarray:
+    """Convert streamlines to a connectivity matrix.
+
+    Divides the brain volume into N_REGIONS spatial zones and counts
+    streamlines connecting each pair of zones. This is an approximation —
+    production version should use FreeSurfer/FastSurfer parcellation.
+    """
+    from dipy.tracking.utils import connectivity_matrix, density_map
+
+    # Create a simple spatial parcellation label volume
+    # Divide into grid: ~4x5x4 = 80 zones ≈ N_REGIONS (82)
+    nx, ny, nz = 4, 5, 4  # 80 zones (close to 82)
+    label_vol = np.zeros(volume_shape[:3], dtype=np.int16)
+
+    sx = volume_shape[0] // nx
+    sy = volume_shape[1] // ny
+    sz = volume_shape[2] // nz
+
+    label = 1
+    for ix in range(nx):
+        for iy in range(ny):
+            for iz in range(nz):
+                x0, x1 = ix * sx, min((ix + 1) * sx, volume_shape[0])
+                y0, y1 = iy * sy, min((iy + 1) * sy, volume_shape[1])
+                z0, z1 = iz * sz, min((iz + 1) * sz, volume_shape[2])
+                label_vol[x0:x1, y0:y1, z0:z1] = label
+                label += 1
+                if label > N_REGIONS:
+                    break
+            if label > N_REGIONS:
+                break
+        if label > N_REGIONS:
+            break
+
+    # Compute connectivity matrix using dipy
+    matrix = connectivity_matrix(
+        streamlines, affine, label_vol,
+        return_mapping=False,
+    )
+
+    # Ensure correct size (may have fewer labels than N_REGIONS)
+    actual_size = matrix.shape[0]
+    if actual_size < N_REGIONS:
+        padded = np.zeros((N_REGIONS, N_REGIONS), dtype=matrix.dtype)
+        padded[:actual_size, :actual_size] = matrix
+        matrix = padded
+    elif actual_size > N_REGIONS:
+        matrix = matrix[:N_REGIONS, :N_REGIONS]
+
+    # Make symmetric and normalize
+    matrix = (matrix + matrix.T) / 2
+    np.fill_diagonal(matrix, 0)
+    max_val = matrix.max()
+    if max_val > 0:
+        matrix = matrix / max_val
+
+    return matrix.astype(np.float64)
 
 
 def _synthetic_connectome(
