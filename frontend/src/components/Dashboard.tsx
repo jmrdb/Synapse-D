@@ -7,6 +7,7 @@
 "use client";
 
 import { useState } from "react";
+import ADRiskCard from "./ADRiskCard";
 import BrainViewer from "./BrainViewer";
 import LongitudinalChart from "./LongitudinalChart";
 import MRIUploader from "./MRIUploader";
@@ -207,6 +208,11 @@ export default function Dashboard() {
               Brain Age 예측이 차단되었습니다: {(result?.result?.brain_age as any)?.reason}
             </div>
           </div>
+        )}
+
+        {/* AD Risk Assessment */}
+        {(result?.result as any)?.ad_risk && !(result?.result as any)?.ad_risk?.error && (
+          <ADRiskCard data={(result.result as any).ad_risk} />
         )}
 
         {/* Morphometry Charts */}

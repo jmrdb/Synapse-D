@@ -156,6 +156,23 @@ def run_pipeline(
                 subject_id=preproc_result.subject_id,
             )
             result["normative"] = norm_result.summary
+
+            # Step 4b: AD/MCI risk assessment (uses normative z-scores)
+            try:
+                from synapse_d.models.ad_risk import assess_ad_risk
+
+                brain_age_data = result.get("brain_age", {})
+                gap = brain_age_data.get("brain_age_gap") if isinstance(brain_age_data, dict) else None
+                ad_result = assess_ad_risk(
+                    normative_scores=norm_result.summary.get("scores", []),
+                    brain_age_gap=gap,
+                    age=chronological_age,
+                    subject_id=preproc_result.subject_id,
+                )
+                result["ad_risk"] = ad_result.to_dict()
+            except Exception as e:
+                logger.error(f"AD risk assessment failed: {e}")
+                result["ad_risk"] = {"error": "AD risk assessment failed"}
         except Exception as e:
             result["normative"] = {"error": str(e)}
 

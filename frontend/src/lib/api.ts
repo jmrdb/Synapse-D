@@ -65,6 +65,20 @@ export interface AnalysisResult {
       }>;
       overall_z_mean?: number;
     };
+    ad_risk?: {
+      risk_score: number;
+      risk_level: string;
+      classification: string;
+      probabilities: Record<string, number>;
+      biomarker_contributions: Array<{
+        biomarker: string;
+        z_score: number;
+        risk_contribution: number;
+        weight: number;
+        weighted_contribution: number;
+      }>;
+      recommendations: string[];
+    };
     wmh?: {
       wmh_volume_mm3: number;
       wmh_volume_ml: number;
