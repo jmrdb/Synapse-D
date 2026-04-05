@@ -113,6 +113,14 @@ _HIPPOCAMPUS_NORMS: dict[str, dict[int, tuple[float, float]]] = {
     },
 }
 
+# WMH volume norms (mL) — sex-pooled (WMH is primarily age-driven)
+# Source: Habes et al., Brain 2016; de Leeuw et al., Neurology 2001
+_WMH_VOLUME_NORMS: dict[int, tuple[float, float]] = {
+    20: (0.1, 0.2), 30: (0.3, 0.4), 40: (0.8, 0.8),
+    50: (2.5, 2.5), 60: (5.0, 4.0), 70: (10.0, 7.0),
+    80: (18.0, 12.0),
+}
+
 # Mean cortical thickness norms (mm)
 # Source: Fjell et al., Cerebral Cortex 2015
 _CORTICAL_THICKNESS_NORMS: dict[int, tuple[float, float]] = {
@@ -306,6 +314,24 @@ def compare_normative(
             value=round(raw_thickness, 3), expected=round(mean, 3), std=round(std, 3),
             z_score=round(z, 2),
             interpretation=_interpret_z(z, "cortical thickness"),
+        ))
+
+    # WMH volume — sex-pooled (primarily age-driven), no ICV/field correction needed
+    wmh_ml = morphometrics.get("wmh_volume_ml")
+    if wmh_ml is not None and wmh_ml >= 0:
+        mean, std = _get_norm(_WMH_VOLUME_NORMS, age)
+        # WMH is positively skewed — higher = worse
+        z = (wmh_ml - mean) / std if std > 0 else 0.0
+        interp = (
+            "normal WMH burden" if z < 1.0
+            else "mildly elevated WMH" if z < 2.0
+            else "significantly elevated WMH (vascular risk)"
+        )
+        scores.append(NormativeScore(
+            metric="wmh_volume",
+            value=round(wmh_ml, 2), expected=round(mean, 1), std=round(std, 1),
+            z_score=round(z, 2),
+            interpretation=interp,
         ))
 
     result.scores = scores

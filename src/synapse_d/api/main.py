@@ -58,7 +58,10 @@ def _validate_subject_id(subject_id: str) -> str:
 
 
 def _run_sync(
-    t1_path: Path, chronological_age: float | None, sex: str | None = None
+    t1_path: Path | None,
+    chronological_age: float | None,
+    sex: str | None = None,
+    flair_path: Path | None = None,
 ) -> dict:
     """Execute pipeline synchronously and return unified response.
 
@@ -66,7 +69,7 @@ def _run_sync(
     """
     from synapse_d.api.tasks import run_pipeline
 
-    result = run_pipeline(t1_path, chronological_age, sex)
+    result = run_pipeline(t1_path, chronological_age, sex, flair_path)
     return {
         "job_id": uuid.uuid4().hex[:12],
         "status": "completed",
@@ -102,30 +105,62 @@ async def health_check():
 
 
 @app.post("/api/v1/upload")
-async def upload_mri(file: UploadFile = File(...)):
-    """Upload a T1-weighted MRI NIfTI file.
+async def upload_mri(
+    file: UploadFile = File(...),
+    modality: str = "T1w",
+    subject_id: str | None = None,
+):
+    """Upload an MRI NIfTI file.
 
-    Accepts .nii or .nii.gz files (max 2GB). Returns a subject_id for tracking.
+    Supports multiple modalities: T1w, T2w, FLAIR, DWI.
+    To add another modality to an existing subject, pass the subject_id.
+
+    Args:
+        file: NIfTI file (.nii or .nii.gz, max 2GB).
+        modality: MRI modality — T1w, T2w, FLAIR, DWI (default: T1w).
+        subject_id: Existing subject ID to add modality to. If omitted, creates new.
     """
     if not file.filename or not (
         file.filename.endswith(".nii") or file.filename.endswith(".nii.gz")
     ):
         raise HTTPException(status_code=400, detail="Only .nii or .nii.gz files accepted")
 
+    # Validate and normalize modality
+    valid_modalities = {"T1w", "T2w", "FLAIR", "DWI"}
+    mod = modality.upper().replace("-", "").replace("_", "")
+    _modality_map = {
+        "T1": "T1w", "T1W": "T1w", "T1WEIGHTED": "T1w",
+        "T2": "T2w", "T2W": "T2w", "T2WEIGHTED": "T2w",
+        "FLAIR": "FLAIR", "T2FLAIR": "FLAIR",
+        "DWI": "DWI", "DTI": "DWI", "DMRI": "DWI",
+    }
+    modality = _modality_map.get(mod, modality)
+    if modality not in valid_modalities:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid modality '{modality}'. Supported: {', '.join(valid_modalities)}",
+        )
+
     content = await file.read()
     if len(content) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 2GB)")
 
-    subject_id = f"sub-{uuid.uuid4().hex[:8]}"
+    # Create or reuse subject
+    if subject_id:
+        _validate_subject_id(subject_id)
+    else:
+        subject_id = f"sub-{uuid.uuid4().hex[:8]}"
+
     subject_dir = settings.upload_dir / subject_id / "anat"
     subject_dir.mkdir(parents=True, exist_ok=True)
 
     suffix = ".nii.gz" if file.filename.endswith(".nii.gz") else ".nii"
-    save_path = subject_dir / f"{subject_id}_T1w{suffix}"
+    save_path = subject_dir / f"{subject_id}_{modality}{suffix}"
     save_path.write_bytes(content)
 
     return {
         "subject_id": subject_id,
+        "modality": modality,
         "filename": file.filename,
         "size_mb": round(len(content) / 1024 / 1024, 2),
     }
@@ -155,24 +190,33 @@ async def start_analysis(
     if not subject_dir.exists():
         raise HTTPException(status_code=404, detail=f"Subject {subject_id} not found")
 
-    nifti_files = list(subject_dir.glob(f"{subject_id}_T1w*"))
-    if not nifti_files:
-        raise HTTPException(status_code=404, detail="No T1w file found for subject")
+    # Find available modalities
+    t1_files = list(subject_dir.glob(f"{subject_id}_T1w*"))
+    flair_files = list(subject_dir.glob(f"{subject_id}_FLAIR*"))
 
-    t1_path = nifti_files[0]
+    if not t1_files and not flair_files:
+        raise HTTPException(status_code=404, detail="No MRI files found for subject")
+
+    t1_path = t1_files[0] if t1_files else None
+    flair_path = flair_files[0] if flair_files else None
 
     # Synchronous execution (dev/test or Celery unavailable)
     if sync:
-        return _run_sync(t1_path, chronological_age, sex)
+        return _run_sync(t1_path, chronological_age, sex, flair_path)
 
     # Async execution via Celery
     try:
         from synapse_d.api.tasks import analyze_mri_task
 
-        task = analyze_mri_task.delay(str(t1_path), chronological_age, sex)
+        task = analyze_mri_task.delay(
+            str(t1_path) if t1_path else None,
+            chronological_age,
+            sex,
+            str(flair_path) if flair_path else None,
+        )
         return {"job_id": task.id, "status": "submitted"}
     except Exception:
-        return _run_sync(t1_path, chronological_age, sex)
+        return _run_sync(t1_path, chronological_age, sex, flair_path)
 
 
 @app.get("/api/v1/results/{job_id}")

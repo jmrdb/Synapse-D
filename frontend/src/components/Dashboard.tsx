@@ -20,6 +20,7 @@ export default function Dashboard() {
 
   const brainAge = result?.result?.brain_age;
   const morpho = result?.result?.preprocessing?.morphometrics;
+  const wmh = result?.result?.wmh as Record<string, any> | undefined;
   const normative = result?.result?.normative;
   const niftiUrl = result?.result?.preprocessing?.brain_extracted_url;
   const usedFallback = result?.result?.preprocessing?.used_fallback;
@@ -119,6 +120,24 @@ export default function Dashboard() {
                 </div>
                 <div style={{ fontSize: "12px", color: "#666" }}>
                   mean deviation from age norm
+                </div>
+              </div>
+            )}
+
+            {/* WMH Card */}
+            {wmh?.success && (
+              <div style={cardStyle}>
+                <div style={cardLabelStyle}>WMH Burden</div>
+                <div style={{
+                  ...cardValueStyle,
+                  color: wmh.fazekas_grade <= 1 ? "#51cf66"
+                    : wmh.fazekas_grade === 2 ? "#ffd43b" : "#ff6b6b",
+                }}>
+                  {wmh.wmh_volume_ml?.toFixed(1)}
+                  <span style={{ fontSize: "14px" }}> mL</span>
+                </div>
+                <div style={{ fontSize: "12px", color: "#666" }}>
+                  Fazekas {wmh.fazekas_grade} · {wmh.wmh_count} lesions
                 </div>
               </div>
             )}

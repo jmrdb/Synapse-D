@@ -65,6 +65,18 @@ export interface AnalysisResult {
       overall_z_mean?: number;
     };
   };
+    wmh?: {
+      wmh_volume_mm3: number;
+      wmh_volume_ml: number;
+      wmh_count: number;
+      fazekas_grade: number;
+      fazekas_description: string;
+      regional_distribution: Record<string, number>;
+      success: boolean;
+      used_fallback: boolean;
+      errors: string[];
+    };
+  };
   error?: string;
   detail?: string;
 }

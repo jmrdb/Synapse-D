@@ -32,28 +32,42 @@ celery_app.conf.update(
 
 
 def run_pipeline(
-    t1_path: Path,
+    t1_path: Path | None,
     chronological_age: float | None = None,
     sex: str | None = None,
+    flair_path: Path | str | None = None,
 ) -> dict:
     """Execute the full analysis pipeline.
 
-    Separated from API layer so it can be called from both
-    Celery workers (production) and synchronous tests.
+    Runs T1 pipeline (brain extraction, segmentation, Brain Age) and
+    optionally FLAIR/WMH pipeline if FLAIR data is available.
 
     Args:
-        t1_path: Path to T1w NIfTI file.
+        t1_path: Path to T1w NIfTI file (None if only FLAIR analysis).
         chronological_age: Optional actual age.
         sex: Optional biological sex ('M' or 'F') for normative comparison.
+        flair_path: Optional path to T2-FLAIR NIfTI for WMH segmentation.
 
     Returns:
-        Dict with preprocessing and brain age results.
+        Dict with preprocessing, brain age, WMH, and normative results.
     """
     from synapse_d.models.brain_age import BrainAgePredictor
     from synapse_d.pipeline.preprocessing import PreprocessingPipeline
 
+    if isinstance(flair_path, str):
+        flair_path = Path(flair_path) if flair_path else None
+
+    # T1 pipeline
     pipeline = PreprocessingPipeline()
-    preproc_result = pipeline.run(t1_path)
+    if t1_path:
+        preproc_result = pipeline.run(t1_path if isinstance(t1_path, Path) else Path(t1_path))
+    else:
+        # FLAIR-only analysis — create minimal result
+        from synapse_d.pipeline.preprocessing import PreprocessingResult
+        preproc_result = PreprocessingResult(
+            subject_id=Path(str(flair_path)).parts[-3] if flair_path else "unknown",
+            success=True,
+        )
 
     warnings = list(preproc_result.errors)
     if preproc_result.used_fallback:
@@ -103,7 +117,11 @@ def run_pipeline(
         }
 
     # Step 3: Normative comparison (if age provided and morphometrics available)
-    if chronological_age is not None and preproc_result.morphometrics:
+    # Merge WMH volume into morphometrics for unified normative comparison
+    morpho_for_norm = dict(preproc_result.morphometrics)
+    if "wmh" in result and isinstance(result["wmh"], dict) and "wmh_volume_ml" in result["wmh"]:
+        morpho_for_norm["wmh_volume_ml"] = result["wmh"]["wmh_volume_ml"]
+    if chronological_age is not None and morpho_for_norm:
         try:
             from synapse_d.models.normative import compare_normative
 
@@ -114,7 +132,7 @@ def run_pipeline(
                 logger.warning(f"Invalid field_strength_t: {raw_field!r}, defaulting to 0.0")
                 field_t = 0.0
             norm_result = compare_normative(
-                morphometrics=preproc_result.morphometrics,
+                morphometrics=morpho_for_norm,
                 age=chronological_age,
                 sex=sex or "M",
                 field_strength_t=float(field_t),
@@ -124,7 +142,18 @@ def run_pipeline(
         except Exception as e:
             result["normative"] = {"error": str(e)}
 
-    # Step 4: Save longitudinal timepoint (auto-accumulate for time series)
+    # Step 4: WMH segmentation (if FLAIR available)
+    if flair_path and flair_path.exists():
+        try:
+            from synapse_d.pipeline.wmh import segment_wmh
+
+            wmh_result = segment_wmh(flair_path)
+            result["wmh"] = wmh_result.to_dict()
+        except Exception as e:
+            logger.error(f"WMH segmentation failed: {e}")
+            result["wmh"] = {"error": "WMH segmentation failed"}
+
+    # Step 5: Save longitudinal timepoint (auto-accumulate for time series)
     try:
         from synapse_d.models.longitudinal import save_timepoint
 
@@ -148,22 +177,23 @@ def run_pipeline(
 @celery_app.task(bind=True, name="synapse_d.analyze_mri")
 def analyze_mri_task(
     self,
-    t1_path_str: str,
+    t1_path_str: str | None,
     chronological_age: float | None = None,
     sex: str | None = None,
+    flair_path_str: str | None = None,
 ) -> dict:
     """Celery task: run full MRI analysis pipeline asynchronously.
 
-    Called by the API server via .delay(). Progress is tracked via
-    Celery's result backend (Redis), eliminating the need for
-    in-memory job state on the API server.
-
     Args:
-        t1_path_str: String path to T1w NIfTI file.
+        t1_path_str: String path to T1w NIfTI file (None for FLAIR-only).
         chronological_age: Optional actual age for Brain Age Gap.
+        sex: Optional biological sex.
+        flair_path_str: Optional string path to FLAIR NIfTI for WMH analysis.
 
     Returns:
-        Dict with preprocessing and brain age results.
+        Dict with preprocessing, brain age, WMH, and normative results.
     """
     self.update_state(state="PREPROCESSING", meta={"step": "brain_extraction"})
-    return run_pipeline(Path(t1_path_str), chronological_age, sex)
+    t1 = Path(t1_path_str) if t1_path_str else None
+    flair = Path(flair_path_str) if flair_path_str else None
+    return run_pipeline(t1, chronological_age, sex, flair)
