@@ -128,11 +128,17 @@ def run_pipeline(
     try:
         from synapse_d.models.longitudinal import save_timepoint
 
-        save_timepoint(
+        brain_path = str(preproc_result.brain_extracted) if preproc_result.brain_extracted else None
+        tp = save_timepoint(
             subject_id=preproc_result.subject_id,
             analysis_result=result,
             age_at_scan=chronological_age,
+            brain_extracted_path=brain_path,
         )
+        # Surface identity check result in API response
+        id_check = tp.metadata.get("identity_check")
+        if id_check:
+            result["identity_check"] = id_check
     except Exception as e:
         logger.warning(f"Failed to save longitudinal timepoint: {e}")
 

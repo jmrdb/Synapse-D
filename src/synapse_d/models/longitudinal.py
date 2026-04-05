@@ -132,14 +132,17 @@ def save_timepoint(
     analysis_result: dict,
     scan_date: str | None = None,
     age_at_scan: float | None = None,
+    brain_extracted_path: str | None = None,
 ) -> Timepoint:
     """Save an analysis result as a longitudinal timepoint.
 
-    Extracts key metrics from the pipeline result and appends to the
-    subject's longitudinal record.
+    Before saving, verifies that the new scan belongs to the same person
+    as previous scans (NCC-based identity check). If identity mismatch
+    is detected, the timepoint is still saved but flagged with a warning.
 
     Args:
         subject_id: BIDS subject ID.
+        brain_extracted_path: Path to brain-extracted NIfTI for identity verification.
         analysis_result: Full pipeline result dict from run_pipeline().
         scan_date: ISO date string (defaults to today).
         age_at_scan: Age at scan (uses chronological_age from brain_age if available).
@@ -181,8 +184,26 @@ def save_timepoint(
         },
     )
 
+    # Identity verification: check if new scan matches previous scans
+    identity_result = None
+    if brain_extracted_path:
+        from synapse_d.utils.identity import find_reference_brain, verify_identity
+        from pathlib import Path as _Path
+
+        ref_brain = find_reference_brain(subject_id)
+        if ref_brain:
+            identity_result = verify_identity(
+                _Path(brain_extracted_path), ref_brain, subject_id
+            )
+            tp.metadata["identity_check"] = identity_result.to_dict()
+
+            if not identity_result.is_same_subject:
+                logger.warning(
+                    f"[{subject_id}] IDENTITY MISMATCH: NCC={identity_result.ncc_score:.3f}. "
+                    f"New scan may not be from the same person!"
+                )
+
     # Atomic read-modify-write with file lock to prevent race conditions
-    # between concurrent Celery workers analyzing the same subject
     path = _record_path(subject_id)
     path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -197,7 +218,6 @@ def save_timepoint(
             record = record[-MAX_TIMEPOINTS:]
             logger.warning(f"[{subject_id}] Trimmed to {MAX_TIMEPOINTS} timepoints")
         _save_record(subject_id, record)
-        # lock released on close
 
     logger.info(f"[{subject_id}] Saved timepoint {session_id} "
                 f"({len(record)} total timepoints)")
