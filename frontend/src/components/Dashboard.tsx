@@ -124,21 +124,34 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* WMH Card */}
-            {wmh?.success && (
+            {/* WMH Card — show success or explicit failure */}
+            {wmh && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>WMH Burden</div>
-                <div style={{
-                  ...cardValueStyle,
-                  color: wmh.fazekas_grade <= 1 ? "#51cf66"
-                    : wmh.fazekas_grade === 2 ? "#ffd43b" : "#ff6b6b",
-                }}>
-                  {wmh.wmh_volume_ml?.toFixed(1)}
-                  <span style={{ fontSize: "14px" }}> mL</span>
-                </div>
-                <div style={{ fontSize: "12px", color: "#666" }}>
-                  Fazekas {wmh.fazekas_grade} · {wmh.wmh_count} lesions
-                </div>
+                {wmh.success ? (
+                  <>
+                    <div style={{
+                      ...cardValueStyle,
+                      color: wmh.fazekas_grade <= 1 ? "#51cf66"
+                        : wmh.fazekas_grade === 2 ? "#ffd43b" : "#ff6b6b",
+                    }}>
+                      {wmh.wmh_volume_ml?.toFixed(1)}
+                      <span style={{ fontSize: "14px" }}> mL</span>
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#666" }}>
+                      Fazekas {wmh.fazekas_grade} · {wmh.wmh_count} lesions
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ marginTop: "8px" }}>
+                    <div style={{ color: "#ff8787", fontSize: "14px" }}>
+                      WMH 분석 실패
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#888", marginTop: "4px" }}>
+                      {wmh.errors?.[0] || "알 수 없는 오류"}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
