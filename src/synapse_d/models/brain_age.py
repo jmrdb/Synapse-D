@@ -27,14 +27,14 @@ from loguru import logger
 
 from synapse_d.config import settings
 
-# SFCN model weights path
-_WEIGHTS_PATH = (
+# SFCN model weights path — check multiple locations (local dev vs Docker)
+_WEIGHTS_FILENAME = "run_20190719_00_epoch_best_mae.p"
+_WEIGHTS_CANDIDATES = [
     Path(__file__).resolve().parent.parent.parent.parent
-    / "vendor"
-    / "layer4-ai-prediction"
-    / "SFCN-BrainAge"
-    / "brain_age"
-    / "run_20190719_00_epoch_best_mae.p"
+    / "vendor" / "layer4-ai-prediction" / "SFCN-BrainAge" / "brain_age" / _WEIGHTS_FILENAME,
+    Path("/app/vendor/layer4-ai-prediction/SFCN-BrainAge/brain_age") / _WEIGHTS_FILENAME,
+]
+_WEIGHTS_PATH = next((p for p in _WEIGHTS_CANDIDATES if p.exists()), _WEIGHTS_CANDIDATES[0]
 )
 
 # SFCN expects input size 160x192x160 (after cropping from 182x218x182 MNI)

@@ -220,16 +220,26 @@ class PreprocessingPipeline:
         brain_path = out_dir / f"{subject_id}_T1w_brain.nii.gz"
         mask_path = out_dir / f"{subject_id}_T1w_brain_mask.nii.gz"
 
+        # HD-BET v2 CLI: -i input -o output -device cpu/cuda --disable_tta --save_bet_mask
         cmd = [
             "hd-bet",
             "-i", str(t1_path),
             "-o", str(brain_path),
             "-device", self.device,
-            "-mode", "fast",
-            "-tta", "0",
+            "--disable_tta",
+            "--save_bet_mask",
         ]
         ok, err = self._run_command(cmd, subject_id, "HD-BET", timeout=600)
         if ok:
+            # HD-BET v2 saves mask as {output}_bet.nii.gz (not _mask)
+            for suffix in ["_bet.nii.gz", "_mask.nii.gz"]:
+                candidate = brain_path.with_name(
+                    brain_path.name.replace(".nii.gz", suffix)
+                )
+                if candidate.exists():
+                    mask_path = candidate
+                    break
+            logger.info(f"[{subject_id}] HD-BET brain extraction complete")
             return brain_path, mask_path
         if "not found" in err and self.allow_fallback:
             self._used_fallback = True

@@ -11,6 +11,7 @@ services:
     volumes:
       - ../data:/app/data
       - ../src:/app/src
+      - ../vendor:/app/vendor:ro
     environment:
       - SYNAPSE_DATA_DIR=/app/data
       - SYNAPSE_DEVICE=${SYNAPSE_DEVICE:-cpu}
@@ -29,6 +30,7 @@ services:
     volumes:
       - ../data:/app/data
       - ../src:/app/src
+      - ../vendor:/app/vendor:ro
     environment:
       - SYNAPSE_DEVICE=cpu
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
@@ -46,6 +48,7 @@ services:
     volumes:
       - ../data:/app/data
       - ../src:/app/src
+      - ../vendor:/app/vendor:ro
     environment:
       - SYNAPSE_DEVICE=cuda
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0

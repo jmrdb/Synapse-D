@@ -174,9 +174,17 @@ def _extract_brain_flair(
     try:
         cmd = [
             "hd-bet", "-i", str(flair_path), "-o", str(brain_path),
-            "-device", device, "-mode", "fast", "-tta", "0",
+            "-device", device, "--disable_tta", "--save_bet_mask",
         ]
         subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
+        # HD-BET v2 saves mask as _bet.nii.gz
+        for suffix in ["_bet.nii.gz", "_mask.nii.gz"]:
+            candidate = brain_path.with_name(
+                brain_path.name.replace(".nii.gz", suffix)
+            )
+            if candidate.exists():
+                mask_path = candidate
+                break
         return brain_path, mask_path
     except FileNotFoundError:
         # Fallback: intensity thresholding (dev only)
