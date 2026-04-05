@@ -278,9 +278,13 @@ def _streamlines_to_matrix(
     for ix in range(nx):
         for iy in range(ny):
             for iz in range(nz):
-                x0, x1 = ix * sx, min((ix + 1) * sx, volume_shape[0])
-                y0, y1 = iy * sy, min((iy + 1) * sy, volume_shape[1])
-                z0, z1 = iz * sz, min((iz + 1) * sz, volume_shape[2])
+                # Last slab extends to volume boundary (no orphan voxels)
+                x0 = ix * sx
+                x1 = volume_shape[0] if ix == nx - 1 else (ix + 1) * sx
+                y0 = iy * sy
+                y1 = volume_shape[1] if iy == ny - 1 else (iy + 1) * sy
+                z0 = iz * sz
+                z1 = volume_shape[2] if iz == nz - 1 else (iz + 1) * sz
                 label_vol[x0:x1, y0:y1, z0:z1] = label
                 label += 1
                 if label > N_REGIONS:
@@ -290,11 +294,16 @@ def _streamlines_to_matrix(
         if label > N_REGIONS:
             break
 
-    # Compute connectivity matrix using dipy
+    # Compute connectivity matrix using dipy (returns scipy sparse matrix)
     matrix = connectivity_matrix(
         streamlines, affine, label_vol,
         return_mapping=False,
     )
+
+    # Convert sparse to dense ndarray
+    if hasattr(matrix, "toarray"):
+        matrix = matrix.toarray()
+    matrix = np.asarray(matrix, dtype=np.float64)
 
     # Remove label 0 (background) row and column
     if matrix.shape[0] > 1:
@@ -333,8 +342,10 @@ def _synthetic_connectome(
     If morphometrics are available, modulates connectivity strength
     by brain volume (atrophy reduces connectivity).
     """
-    # Subject-specific seed for deterministic but unique connectome per person
-    seed = hash(subject_id) % (2**31) if subject_id else 42
+    # Subject-specific deterministic seed (hashlib is consistent across runs,
+    # unlike Python's hash() which is randomized per process)
+    import hashlib
+    seed = int(hashlib.md5(subject_id.encode()).hexdigest(), 16) % (2**31) if subject_id else 42
     rng = np.random.RandomState(seed)
     matrix = np.zeros((N_REGIONS, N_REGIONS), dtype=np.float64)
 
@@ -389,13 +400,15 @@ def _synthetic_connectome(
 
 
 def _compute_network_metrics(matrix: np.ndarray, subject_id: str) -> dict:
-    """Compute global and nodal network metrics from connectivity matrix.
+    """Compute network metrics from connectivity matrix.
 
-    Metrics:
-    - Global efficiency (integration measure)
-    - Clustering coefficient (segregation measure)
-    - Small-worldness index
-    - Hub nodes (highest degree centrality)
+    Implemented metrics:
+    - Node degree (mean)
+    - Density (proportion of possible edges)
+    - Clustering coefficient (segregation, vectorized A^3 method)
+    - Hub nodes (top 5 by degree centrality)
+
+    Future: global efficiency, small-worldness index
     """
     # Binary adjacency (threshold at 0.1)
     threshold = 0.1
@@ -411,29 +424,24 @@ def _compute_network_metrics(matrix: np.ndarray, subject_id: str) -> dict:
     max_edges = n * (n - 1) // 2
     density = n_edges / max_edges if max_edges > 0 else 0.0
 
-    # Clustering coefficient (per node, then average)
-    clustering = []
-    for i in range(n):
-        neighbors = np.where(adj[i] > 0)[0]
-        k = len(neighbors)
-        if k < 2:
-            clustering.append(0.0)
-            continue
-        # Count triangles
-        triangles = 0
-        for ni in range(len(neighbors)):
-            for nj in range(ni + 1, len(neighbors)):
-                if adj[neighbors[ni], neighbors[nj]] > 0:
-                    triangles += 1
-        possible = k * (k - 1) / 2
-        clustering.append(triangles / possible if possible > 0 else 0.0)
-
-    mean_clustering = float(np.mean(clustering))
+    # Clustering coefficient — vectorized via matrix multiplication
+    A = adj.astype(np.float64)
+    triangles_per_node = np.diag(A @ A @ A) / 2
+    possible_per_node = degrees * (degrees - 1) / 2
+    clustering = np.divide(
+        triangles_per_node, possible_per_node,
+        out=np.zeros(n, dtype=np.float64),
+        where=possible_per_node > 0,
+    )
+    mean_clustering = float(clustering.mean())
 
     # Hub nodes (top 5 by degree)
     top_indices = np.argsort(degrees)[-5:][::-1]
     hubs = [
-        {"region": _DK_REGIONS[i], "degree": int(degrees[i])}
+        {
+            "region": _DK_REGIONS[i] if i < len(_DK_REGIONS) else f"region_{i}",
+            "degree": int(degrees[i]),
+        }
         for i in top_indices
     ]
 
