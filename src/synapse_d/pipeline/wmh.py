@@ -75,11 +75,13 @@ class WMHResult:
 
 # Fazekas scale thresholds (WMH volume in mL)
 # Source: Defined per clinical convention + Griffanti et al., NeuroImage 2016
+# Note: Real Fazekas grading considers lesion location and pattern, not just volume.
+# This volume-based estimate is approximate. Clinical grading requires visual assessment.
 _FAZEKAS_THRESHOLDS = [
-    (0, 0.5, 0, "Grade 0: No WMH or minimal punctate"),
-    (0.5, 5.0, 1, "Grade 1: Punctate foci"),
-    (5.0, 25.0, 2, "Grade 2: Beginning confluence"),
-    (25.0, float("inf"), 3, "Grade 3: Large confluent areas"),
+    (0, 0.5, 0, "Grade 0: No WMH or minimal punctate (volume-based estimate)"),
+    (0.5, 5.0, 1, "Grade 1: Punctate foci (volume-based estimate)"),
+    (5.0, 25.0, 2, "Grade 2: Beginning confluence (volume-based estimate)"),
+    (25.0, float("inf"), 3, "Grade 3: Large confluent areas (volume-based estimate)"),
 ]
 
 
@@ -141,7 +143,7 @@ def segment_wmh(
     result.used_fallback = used_fallback
 
     # Step 3: Quantification
-    _quantify_wmh(result, wmh_mask_path, mask_path, img, subject_id)
+    _quantify_wmh(result, wmh_mask_path, mask_path, subject_id)
 
     result.success = True
     logger.info(f"[{subject_id}] WMH: {result.wmh_volume_ml:.1f} mL, "
@@ -235,6 +237,7 @@ def _wmh_threshold_fallback(
         # Compute threshold: mean + 2.5*std of non-zero voxels
         brain_voxels = data[data > 0]
         if len(brain_voxels) < 1000:
+            logger.warning(f"[{subject_id}] Too few brain voxels ({len(brain_voxels)}) for WMH detection")
             return None, True
 
         threshold = brain_voxels.mean() + 2.5 * brain_voxels.std()
@@ -250,7 +253,7 @@ def _wmh_threshold_fallback(
 
 def _quantify_wmh(
     result: WMHResult, wmh_mask_path: Path, brain_mask_path: Path | None,
-    original_img: nib.Nifti1Image, subject_id: str,
+    subject_id: str,
 ) -> None:
     """Quantify WMH: volume, lesion count, Fazekas grade, regional distribution."""
     wmh_img = nib.load(str(wmh_mask_path))
@@ -287,7 +290,10 @@ def _quantify_wmh(
             "periventricular": float(np.sum(wmh_data[:, :, third:2*third] > 0) * voxel_vol / 1000),
             "juxtacortical": float(np.sum(wmh_data[:, :, 2*third:] > 0) * voxel_vol / 1000),
         }
-        result.regional_distribution = {k: round(v, 2) for k, v in regions.items()}
+        result.regional_distribution = {
+            **{k: round(v, 2) for k, v in regions.items()},
+            "_note": "approximate (axial thirds, orientation-dependent)",
+        }
 
     logger.info(f"[{subject_id}] WMH quantified: {result.wmh_volume_ml:.1f} mL, "
                 f"{result.wmh_count} lesions, Fazekas {result.fazekas_grade}")

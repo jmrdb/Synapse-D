@@ -20,7 +20,7 @@ export default function Dashboard() {
 
   const brainAge = result?.result?.brain_age;
   const morpho = result?.result?.preprocessing?.morphometrics;
-  const wmh = result?.result?.wmh as Record<string, any> | undefined;
+  const wmh = result?.result?.wmh;
   const normative = result?.result?.normative;
   const niftiUrl = result?.result?.preprocessing?.brain_extracted_url;
   const usedFallback = result?.result?.preprocessing?.used_fallback;

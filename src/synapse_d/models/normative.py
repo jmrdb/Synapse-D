@@ -337,8 +337,11 @@ def compare_normative(
     result.scores = scores
 
     # Overall summary
+    # Exclude WMH from overall z-mean because its direction is opposite:
+    # brain volume: negative z = bad (atrophy), WMH: positive z = bad (burden)
     if scores:
-        z_values = [s.z_score for s in scores]
+        structural_scores = [s for s in scores if s.metric != "wmh_volume"]
+        z_values = [s.z_score for s in structural_scores] if structural_scores else [s.z_score for s in scores]
         result.summary = {
             "scores": [
                 {

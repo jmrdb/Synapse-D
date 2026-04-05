@@ -65,7 +65,7 @@ def run_pipeline(
         # FLAIR-only analysis — create minimal result
         from synapse_d.pipeline.preprocessing import PreprocessingResult
         preproc_result = PreprocessingResult(
-            subject_id=Path(str(flair_path)).parts[-3] if flair_path else "unknown",
+            subject_id=Path(str(flair_path)).name.split("_")[0] if flair_path else "unknown",
             success=True,
         )
 
@@ -116,7 +116,18 @@ def run_pipeline(
             "reason": "해상도 부족 (>3mm): Brain Age 예측은 1.5mm 이하 T1에서만 제공",
         }
 
-    # Step 3: Normative comparison (if age provided and morphometrics available)
+    # Step 3: WMH segmentation (if FLAIR available) — runs BEFORE normative
+    if flair_path and flair_path.exists():
+        try:
+            from synapse_d.pipeline.wmh import segment_wmh
+
+            wmh_result = segment_wmh(flair_path)
+            result["wmh"] = wmh_result.to_dict()
+        except Exception as e:
+            logger.error(f"WMH segmentation failed: {e}")
+            result["wmh"] = {"error": "WMH segmentation failed"}
+
+    # Step 4: Normative comparison (if age provided and morphometrics available)
     # Merge WMH volume into morphometrics for unified normative comparison
     morpho_for_norm = dict(preproc_result.morphometrics)
     if "wmh" in result and isinstance(result["wmh"], dict) and "wmh_volume_ml" in result["wmh"]:
@@ -141,17 +152,6 @@ def run_pipeline(
             result["normative"] = norm_result.summary
         except Exception as e:
             result["normative"] = {"error": str(e)}
-
-    # Step 4: WMH segmentation (if FLAIR available)
-    if flair_path and flair_path.exists():
-        try:
-            from synapse_d.pipeline.wmh import segment_wmh
-
-            wmh_result = segment_wmh(flair_path)
-            result["wmh"] = wmh_result.to_dict()
-        except Exception as e:
-            logger.error(f"WMH segmentation failed: {e}")
-            result["wmh"] = {"error": "WMH segmentation failed"}
 
     # Step 5: Save longitudinal timepoint (auto-accumulate for time series)
     try:

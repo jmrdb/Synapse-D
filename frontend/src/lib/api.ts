@@ -7,6 +7,7 @@ const API_BASE = "/api/v1";
 
 export interface UploadResponse {
   subject_id: string;
+  modality: string;
   filename: string;
   size_mb: number;
 }
@@ -64,7 +65,6 @@ export interface AnalysisResult {
       }>;
       overall_z_mean?: number;
     };
-  };
     wmh?: {
       wmh_volume_mm3: number;
       wmh_volume_ml: number;
