@@ -56,7 +56,7 @@ echo ""
 # =============================================================
 if [ "$1" = "--local" ]; then
     log "Starting backend (local mode)..."
-    uvicorn synapse_d.api.main:app --host 0.0.0.0 --port 8000 &
+    uvicorn synapse_d.api.main:app --host 127.0.0.1 --port 8000 &
     BACKEND_PID=$!
     sleep 2
 else

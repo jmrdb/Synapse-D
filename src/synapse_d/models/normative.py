@@ -211,6 +211,8 @@ def _apply_field_correction(
 def _interpret_z(z: float, metric_name: str) -> str:
     """Generate human-readable interpretation of a z-score."""
     abs_z = abs(z)
+    if abs_z > 10:
+        return "measurement error likely (z > 10)"
     if abs_z < 1.0:
         return "normal range"
     elif abs_z < 2.0:
@@ -254,6 +256,12 @@ def compare_normative(
     scores = []
     icv_available = "normalization_method" in morphometrics
     field_corrected = False
+
+    # Check if measurements are plausible (fallback extraction may include skull)
+    volume_plausible = morphometrics.get("volume_plausible", True)
+    if not volume_plausible:
+        logger.warning(f"[{subject_id}] Volume outside plausible range — "
+                       f"normative z-scores may be unreliable")
 
     # Total brain volume
     # ICV normalization already cancels field strength bias in the ratio
@@ -354,6 +362,7 @@ def compare_normative(
                 for s in scores
             ],
             "overall_z_mean": round(float(np.mean(z_values)), 2),
+            "volume_plausible": volume_plausible,
             "icv_normalized": icv_available,
             "field_strength_corrected": field_corrected,
             "field_strength_t": field_strength_t if field_strength_t > 0 else None,

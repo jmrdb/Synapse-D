@@ -236,15 +236,25 @@ def compute_from_mask(
     brain_vol_mm3 = float(np.sum(mask_data > 0) * voxel_vol)
     brain_vol_cm3 = brain_vol_mm3 / 1000.0
 
+    # Sanity check: healthy adult brain is 900-1800 cm³
+    # Fallback extraction often includes skull → 3000+ cm³
+    volume_plausible = 200 < brain_vol_cm3 < 2000
+    if not volume_plausible:
+        logger.warning(f"[{subject_id}] Volume {brain_vol_cm3:.0f} cm³ outside "
+                       f"plausible range (200-2000) — fallback extraction likely "
+                       f"includes non-brain tissue (skull, CSF)")
+
     result = MorphometryResult(
         subject_id=subject_id,
         total_brain_volume_cm3=brain_vol_cm3,
         summary={
             "total_brain_volume_cm3": round(brain_vol_cm3, 1),
             "source": "mask_only",
+            "volume_plausible": volume_plausible,
         },
     )
-    logger.info(f"[{subject_id}] Mask-based volume: {brain_vol_cm3:.1f} cm³")
+    logger.info(f"[{subject_id}] Mask-based volume: {brain_vol_cm3:.1f} cm³ "
+                f"({'plausible' if volume_plausible else 'IMPLAUSIBLE'})")
     return result
 
 

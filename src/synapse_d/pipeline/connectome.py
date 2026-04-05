@@ -138,19 +138,12 @@ def generate_connectome(
 
 
 def _tractography_connectome(dwi_path: Path, subject_id: str) -> np.ndarray:
-    """Generate connectome via dMRI tractography using dipy.
+    """Generate connectome via dMRI tractography.
 
-    Requires: dipy, fury (optional for visualization).
+    Placeholder — requires dipy + bvals/bvecs files.
+    Full implementation planned for Phase 3.
     """
-    import dipy.reconst.dti as dti
-    from dipy.core.gradients import gradient_table
-    from dipy.io.image import load_nifti
-    from dipy.tracking.local_tracking import LocalTracking
-    from dipy.tracking.stopping_criterion import ThresholdStoppingCriterion
-
-    logger.info(f"[{subject_id}] Running dipy tractography...")
-    # This is a placeholder — full dipy pipeline requires bvals/bvecs
-    raise NotImplementedError("Full dipy tractography requires bvals/bvecs files")
+    raise NotImplementedError("Full tractography requires dipy + bvals/bvecs files")
 
 
 def _synthetic_connectome(
@@ -167,36 +160,42 @@ def _synthetic_connectome(
     If morphometrics are available, modulates connectivity strength
     by brain volume (atrophy reduces connectivity).
     """
-    rng = np.random.RandomState(42)  # Reproducible for same subject
+    # Subject-specific seed for deterministic but unique connectome per person
+    seed = hash(subject_id) % (2**31) if subject_id else 42
+    rng = np.random.RandomState(seed)
     matrix = np.zeros((N_REGIONS, N_REGIONS), dtype=np.float64)
 
     for i in range(N_REGIONS):
         for j in range(i + 1, N_REGIONS):
             ri, rj = _DK_REGIONS[i], _DK_REGIONS[j]
 
+            # Extract region base names (strip hemisphere prefix)
+            ri_base = ri.split("-", 1)[1] if "-" in ri else ri
+            rj_base = rj.split("-", 1)[1] if "-" in rj else rj
+            ri_hemi = ri.split("-", 1)[0] if "-" in ri else ""
+            rj_hemi = rj.split("-", 1)[0] if "-" in rj else ""
+
             # Base connection probability
             prob = 0.15
 
             # Homotopic boost: L↔R homologues are strongly connected
-            if ri.replace("lh-", "") == rj.replace("rh-", ""):
+            if ri_base == rj_base and ri_hemi != rj_hemi:
                 prob = 0.9
 
             # Same hemisphere boost
-            elif ri[:2] == rj[:2]:
+            elif ri_hemi == rj_hemi:
                 prob = 0.25
 
             # Hub regions boost
             hubs = {"precuneus", "superiorfrontal", "insula", "posteriorcingulate"}
-            ri_name = ri.split("-", 1)[1] if "-" in ri else ri
-            rj_name = rj.split("-", 1)[1] if "-" in rj else rj
-            if ri_name in hubs or rj_name in hubs:
+            if ri_base in hubs or rj_base in hubs:
                 prob = min(prob * 1.5, 0.95)
 
             # Generate connection
             if rng.random() < prob:
                 strength = rng.exponential(0.3) + 0.1
                 # Homotopic connections are stronger
-                if ri.replace("lh-", "") == rj.replace("rh-", ""):
+                if ri_base == rj_base and ri_hemi != rj_hemi:
                     strength *= 2.0
                 matrix[i, j] = strength
                 matrix[j, i] = strength
