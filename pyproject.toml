@@ -43,6 +43,7 @@ dev = [
 full = [
     "antspyx>=0.4",
     "HD-BET",
+    "dipy>=1.9",
 ]
 
 [tool.setuptools.packages.find]

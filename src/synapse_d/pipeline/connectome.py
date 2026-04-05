@@ -114,7 +114,7 @@ def generate_connectome(
     """
     result = ConnectomeResult(subject_id=subject_id)
 
-    # Try dMRI-based tractography (requires dipy or MRtrix3)
+    # Try dMRI-based tractography (requires dipy)
     if dwi_path and dwi_path.exists():
         try:
             matrix = _tractography_connectome(dwi_path, subject_id)
@@ -124,8 +124,10 @@ def generate_connectome(
             logger.info(f"[{subject_id}] Tractography connectome: {N_REGIONS}x{N_REGIONS}")
             result.network_metrics = _compute_network_metrics(matrix, subject_id)
             return result
+        except ImportError as e:
+            logger.error(f"[{subject_id}] dipy not installed — cannot run tractography: {e}")
         except Exception as e:
-            logger.warning(f"[{subject_id}] Tractography failed ({e}), using synthetic")
+            logger.warning(f"[{subject_id}] Tractography failed: {e}", exc_info=True)
 
     # Fallback: synthetic connectome based on morphometrics
     matrix = _synthetic_connectome(morphometrics, subject_id)
@@ -165,29 +167,33 @@ def _tractography_connectome(dwi_path: Path, subject_id: str) -> np.ndarray:
     from dipy.tracking.local_tracking import LocalTracking
     from dipy.tracking.streamline import Streamlines
     from dipy.direction import peaks_from_model
-    from dipy.reconst.csdeconv import auto_response_ssst
     from dipy.reconst.shm import CsaOdfModel
     import nibabel as nib
 
     # Find bvals/bvecs (BIDS convention: same directory, same prefix)
     dwi_dir = dwi_path.parent
     stem = dwi_path.name.replace(".nii.gz", "").replace(".nii", "")
+    # BIDS: .bval/.bvec, dcm2niix may use .bvals/.bvecs
     bval_path = dwi_dir / f"{stem}.bval"
     bvec_path = dwi_dir / f"{stem}.bvec"
+    if not bval_path.exists():
+        bval_path = dwi_dir / f"{stem}.bvals"
+    if not bvec_path.exists():
+        bvec_path = dwi_dir / f"{stem}.bvecs"
 
     if not bval_path.exists() or not bvec_path.exists():
         raise FileNotFoundError(
-            f"bvals/bvecs not found: {bval_path}, {bvec_path}"
+            f"bvals/bvecs not found in {dwi_dir} for {stem}"
         )
 
     logger.info(f"[{subject_id}] Loading dMRI: {dwi_path.name}")
 
     # Step 1: Load data
     img = nib.load(str(dwi_path))
-    data = np.asanyarray(img.dataobj)
+    data = np.asarray(img.dataobj, dtype=np.float32)  # float32: ~4GB vs ~8GB
     affine = img.affine
     bvals, bvecs = read_bvals_bvecs(str(bval_path), str(bvec_path))
-    gtab = gradient_table(bvals, bvecs)
+    gtab = gradient_table(bvals, bvecs=bvecs)
 
     logger.info(f"[{subject_id}] dMRI: shape={data.shape}, "
                 f"b-values={np.unique(bvals.astype(int))}, "
@@ -197,8 +203,7 @@ def _tractography_connectome(dwi_path: Path, subject_id: str) -> np.ndarray:
     logger.info(f"[{subject_id}] Fitting DTI model...")
     tensor_model = TensorModel(gtab)
     tensor_fit = tensor_model.fit(data)
-    fa = tensor_fit.fa.copy()
-    fa[np.isnan(fa)] = 0
+    fa = np.nan_to_num(tensor_fit.fa, nan=0.0, posinf=0.0, neginf=0.0)
 
     # Step 3: Create brain mask from FA
     mask = fa > 0.1
@@ -213,6 +218,11 @@ def _tractography_connectome(dwi_path: Path, subject_id: str) -> np.ndarray:
         min_separation_angle=25,
         mask=mask,
     )
+
+    # Save shape before freeing the 4D volume
+    volume_shape = data.shape[:3]
+    # Free 4D dMRI volume (~4GB) — no longer needed after peak extraction
+    del data, tensor_model, tensor_fit, csa_model
 
     # Step 5: Deterministic tracking
     logger.info(f"[{subject_id}] Running fiber tracking...")
@@ -237,7 +247,7 @@ def _tractography_connectome(dwi_path: Path, subject_id: str) -> np.ndarray:
     # Step 6: Build connectivity matrix
     # Create a simplified parcellation by dividing the brain into N_REGIONS zones
     # based on spatial coordinates (since we don't have FreeSurfer parcellation)
-    matrix = _streamlines_to_matrix(streamlines, data.shape[:3], affine)
+    matrix = _streamlines_to_matrix(streamlines, volume_shape, affine)
 
     logger.info(f"[{subject_id}] Tractography connectome built: "
                 f"{n_streamlines} streamlines → {N_REGIONS}x{N_REGIONS} matrix")
@@ -253,7 +263,7 @@ def _streamlines_to_matrix(
     streamlines connecting each pair of zones. This is an approximation —
     production version should use FreeSurfer/FastSurfer parcellation.
     """
-    from dipy.tracking.utils import connectivity_matrix, density_map
+    from dipy.tracking.utils import connectivity_matrix
 
     # Create a simple spatial parcellation label volume
     # Divide into grid: ~4x5x4 = 80 zones ≈ N_REGIONS (82)
@@ -285,6 +295,10 @@ def _streamlines_to_matrix(
         streamlines, affine, label_vol,
         return_mapping=False,
     )
+
+    # Remove label 0 (background) row and column
+    if matrix.shape[0] > 1:
+        matrix = matrix[1:, 1:]
 
     # Ensure correct size (may have fewer labels than N_REGIONS)
     actual_size = matrix.shape[0]
