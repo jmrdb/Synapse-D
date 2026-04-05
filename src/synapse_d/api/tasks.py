@@ -178,7 +178,20 @@ def run_pipeline(
         except Exception as e:
             result["normative"] = {"error": str(e)}
 
-    # Step 5: Save longitudinal timepoint (auto-accumulate for time series)
+    # Step 5: Structural connectome generation
+    try:
+        from synapse_d.pipeline.connectome import generate_connectome
+
+        connectome = generate_connectome(
+            morphometrics=preproc_result.morphometrics,
+            subject_id=preproc_result.subject_id,
+        )
+        if connectome.success:
+            result["connectome"] = connectome.to_dict()
+    except Exception as e:
+        logger.warning(f"Connectome generation failed: {e}")
+
+    # Step 6: Save longitudinal timepoint (auto-accumulate for time series)
     try:
         from synapse_d.models.longitudinal import save_timepoint
 

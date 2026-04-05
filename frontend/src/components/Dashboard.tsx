@@ -9,6 +9,7 @@
 import { useState } from "react";
 import ADRiskCard, { type ADRiskData } from "./ADRiskCard";
 import BrainViewer from "./BrainViewer";
+import ConnectomeView from "./ConnectomeView";
 import LongitudinalChart from "./LongitudinalChart";
 import MRIUploader from "./MRIUploader";
 import MorphometryCharts from "./MorphometryCharts";
@@ -19,15 +20,18 @@ export default function Dashboard() {
   const [subjectId, setSubjectId] = useState<string | null>(null);
   const [longitudinalKey, setLongitudinalKey] = useState(0);
 
-  const brainAge = result?.result?.brain_age;
+  const rawBrainAge = result?.result?.brain_age;
+  // Type-safe brain age extraction from union type
+  const brainAge = rawBrainAge && "predicted_age" in rawBrainAge ? rawBrainAge : null;
+  const blockedBrainAge = rawBrainAge && "blocked" in rawBrainAge ? rawBrainAge : null;
   const morpho = result?.result?.preprocessing?.morphometrics;
-  const wmh = result?.result?.wmh;
+  const rawWmh = result?.result?.wmh;
+  const wmh = rawWmh && "success" in rawWmh ? rawWmh : null;
   const normative = result?.result?.normative;
   const niftiUrl = result?.result?.preprocessing?.brain_extracted_url;
   const usedFallback = result?.result?.preprocessing?.used_fallback;
   const resolution = result?.result?.preprocessing?.resolution;
   const tier = resolution?.tier as string | undefined;
-  const blockedBrainAge = result?.result?.brain_age && "blocked" in result.result.brain_age;
 
   return (
     <div style={{ minHeight: "100vh", background: "#0f0f1a", color: "white", padding: "24px" }}>
@@ -62,8 +66,8 @@ export default function Dashboard() {
         {/* Summary Cards */}
         {result?.result && (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "16px" }}>
-            {/* Brain Age Card — only if not blocked */}
-            {brainAge && !blockedBrainAge && "predicted_age" in brainAge && (
+            {/* Brain Age Card */}
+            {brainAge && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Predicted Brain Age</div>
                 <div style={cardValueStyle}>
@@ -76,7 +80,7 @@ export default function Dashboard() {
             )}
 
             {/* Brain Age Gap Card */}
-            {brainAge && !blockedBrainAge && brainAge.brain_age_gap != null && (
+            {brainAge && brainAge.brain_age_gap != null && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Brain Age Gap</div>
                 <div style={{
@@ -189,7 +193,7 @@ export default function Dashboard() {
               </span>
               {(resolution?.blocked_features?.length ?? 0) > 0 && (
                 <div style={{ fontSize: "11px", color: "#ff8787", marginTop: "2px" }}>
-                  차단: {resolution.blocked_features.join(", ")}
+                  차단: {resolution?.blocked_features?.join(", ")}
                 </div>
               )}
             </div>
@@ -205,7 +209,7 @@ export default function Dashboard() {
             padding: "12px",
           }}>
             <div style={{ fontSize: "13px", color: "#ff8787" }}>
-              Brain Age 예측이 차단되었습니다: {(result?.result?.brain_age as any)?.reason}
+              Brain Age 예측이 차단되었습니다: {"reason" in blockedBrainAge ? blockedBrainAge.reason : ""}
             </div>
           </div>
         )}
@@ -228,6 +232,11 @@ export default function Dashboard() {
               AD 위험도 평가를 위한 바이오마커가 부족합니다. T1 MRI 구조 분석 데이터가 필요합니다.
             </div>
           </div>
+        )}
+
+        {/* Structural Connectome */}
+        {result?.result && (result.result as any)?.connectome?.success && (
+          <ConnectomeView data={(result.result as any).connectome} />
         )}
 
         {/* Morphometry Charts */}
