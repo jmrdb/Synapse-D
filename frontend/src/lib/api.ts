@@ -78,6 +78,8 @@ export interface AnalysisResult {
         weighted_contribution: number;
       }>;
       recommendations: string[];
+    } | {
+      error: string;
     };
     wmh?: {
       wmh_volume_mm3: number;

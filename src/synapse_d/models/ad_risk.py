@@ -27,6 +27,8 @@ Reference: Kola et al., Nature Communications 2022
 
 from dataclasses import dataclass, field
 
+import math
+
 from loguru import logger
 
 
@@ -100,7 +102,7 @@ _RISK_LEVELS = [
     (0, 25, "low", "NC"),
     (25, 50, "moderate", "MCI"),
     (50, 75, "high", "MCI"),
-    (75, 100, "very_high", "AD"),
+    (75, 101, "very_high", "AD"),  # 101 to include score=100
 ]
 
 
@@ -211,13 +213,12 @@ def _z_to_risk(z: float) -> float:
     """Convert a z-score to a 0-100 risk scale.
 
     Uses a sigmoid-like mapping:
-    z = 0 → risk ≈ 25 (average)
-    z = 1 → risk ≈ 45
-    z = 2 → risk ≈ 70
-    z = 3 → risk ≈ 90
+    z = 0 → risk ≈ 23
+    z = 1 → risk ≈ 50
+    z = 2 → risk ≈ 77
+    z = 3 → risk ≈ 92
     """
-    import math
-    # Sigmoid centered at z=1.5, scaled to 0-100
+    # Sigmoid centered at z=1.0, scaled to 0-100
     risk = 100 / (1 + math.exp(-1.2 * (z - 1.0)))
     return max(0, min(100, risk))
 
@@ -270,7 +271,6 @@ def _generate_recommendations(
             recs.append(f"  - {c['biomarker']}: 주의 필요 (z={c['z_score']:.1f})")
 
     # Disclaimer
-    recs.append("")
     recs.append("* 본 결과는 구조적 MRI 바이오마커 기반 위험도 추정이며, "
                 "확정 진단이 아닙니다. 임상 판단은 반드시 전문의와 상담하세요.")
 

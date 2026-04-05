@@ -211,8 +211,8 @@ export default function Dashboard() {
         )}
 
         {/* AD Risk Assessment */}
-        {(result?.result as any)?.ad_risk && !(result?.result as any)?.ad_risk?.error && (
-          <ADRiskCard data={(result.result as any).ad_risk} />
+        {result?.result?.ad_risk && !("error" in result.result.ad_risk) && (
+          <ADRiskCard data={result.result.ad_risk as any} />
         )}
 
         {/* Morphometry Charts */}
