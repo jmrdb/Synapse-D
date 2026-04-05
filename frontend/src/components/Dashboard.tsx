@@ -50,11 +50,10 @@ export default function Dashboard() {
         {/* Upload Section */}
         <MRIUploader onAnalysisComplete={(r) => {
           setResult(r);
-          // Extract subject_id from result to enable longitudinal tracking
-          const sid = r.result?.preprocessing?.brain_extracted_url?.split("/")[2];
+          const sid = r.result?.subject_id;
           if (sid) {
             setSubjectId(sid);
-            setLongitudinalKey((k) => k + 1); // Force re-fetch
+            setLongitudinalKey((k) => k + 1);
           }
         }} />
 

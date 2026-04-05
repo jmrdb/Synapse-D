@@ -17,6 +17,7 @@ export interface AnalysisResult {
   job_id: string;
   status: JobStatus;
   result?: {
+    subject_id?: string;
     preprocessing: {
       success: boolean;
       brain_extracted_url?: string;

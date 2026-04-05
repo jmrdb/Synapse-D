@@ -62,6 +62,7 @@ def run_pipeline(
     tier = preproc_result.resolution_info.get("tier", "basic")  # fail-safe default
 
     result = {
+        "subject_id": preproc_result.subject_id,
         "preprocessing": {
             "success": preproc_result.success,
             "used_fallback": preproc_result.used_fallback,

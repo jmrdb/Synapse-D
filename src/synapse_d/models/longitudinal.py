@@ -21,15 +21,18 @@ Storage: JSON files per subject (DB-free for Phase 1).
 Path: data/processed/{subject_id}/longitudinal.json
 """
 
+import fcntl
 import json
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import date, datetime
 from pathlib import Path
 
-import numpy as np
 from loguru import logger
 
 from synapse_d.config import settings
+
+# Maximum timepoints per subject to prevent unbounded growth
+MAX_TIMEPOINTS = 100
 
 
 @dataclass
@@ -156,11 +159,13 @@ def save_timepoint(
         if gap is not None and predicted:
             age_at_scan = predicted - gap
 
-    # Build timepoint
-    session_id = f"ses-{(scan_date or date.today().isoformat()).replace('-', '')}"
+    # Build timepoint — use timestamp-based session_id to avoid same-day collisions
+    now = datetime.now()
+    scan_date_str = scan_date or now.strftime("%Y-%m-%d")
+    session_id = f"ses-{now.strftime('%Y%m%d%H%M%S')}"
     tp = Timepoint(
         session_id=session_id,
-        scan_date=scan_date or date.today().isoformat(),
+        scan_date=scan_date_str,
         age_at_scan=age_at_scan or 0.0,
         brain_volume_cm3=morpho.get("total_brain_volume_normalized_cm3")
             or morpho.get("total_brain_volume_cm3"),
@@ -176,13 +181,23 @@ def save_timepoint(
         },
     )
 
-    # Load existing record, append, save
-    record = _load_record(subject_id)
-    # Avoid duplicate session_id
-    record = [t for t in record if t.session_id != session_id]
-    record.append(tp)
-    record.sort(key=lambda t: t.scan_date)
-    _save_record(subject_id, record)
+    # Atomic read-modify-write with file lock to prevent race conditions
+    # between concurrent Celery workers analyzing the same subject
+    path = _record_path(subject_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    lock_path = path.with_suffix(".lock")
+    with open(lock_path, "w") as lock_file:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+        record = _load_record(subject_id)
+        record = [t for t in record if t.session_id != session_id]
+        record.append(tp)
+        record.sort(key=lambda t: t.scan_date)
+        if len(record) > MAX_TIMEPOINTS:
+            record = record[-MAX_TIMEPOINTS:]
+            logger.warning(f"[{subject_id}] Trimmed to {MAX_TIMEPOINTS} timepoints")
+        _save_record(subject_id, record)
+        # lock released on close
 
     logger.info(f"[{subject_id}] Saved timepoint {session_id} "
                 f"({len(record)} total timepoints)")
@@ -286,9 +301,11 @@ def _interpret_change(metric: str, annual_pct: float) -> str:
         return "accelerated decline (above AD-range threshold)"
     if annual_pct <= concerning:
         return "concerning decline (above normal aging rate)"
-    if normal_low <= annual_pct <= normal_high:
+    if annual_pct >= normal_low:
+        # Between normal range low and 0 (already handled positive above)
         return "normal aging range"
-    return "within expected range"
+    # Between concerning and normal_low — mild concern
+    return "mildly above normal aging rate"
 
 
 def _interpret_gap_change(abs_change: float) -> str:
@@ -354,7 +371,8 @@ def _load_record(subject_id: str) -> list[Timepoint]:
         return []
     try:
         data = json.loads(path.read_text())
-        return [Timepoint(**tp) for tp in data]
+        known = {f.name for f in fields(Timepoint)}
+        return [Timepoint(**{k: v for k, v in tp.items() if k in known}) for tp in data]
     except (json.JSONDecodeError, TypeError) as e:
         logger.error(f"[{subject_id}] Failed to load longitudinal record: {e}")
         return []
