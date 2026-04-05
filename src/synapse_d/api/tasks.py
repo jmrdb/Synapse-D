@@ -57,6 +57,9 @@ def run_pipeline(
     if isinstance(flair_path, str):
         flair_path = Path(flair_path) if flair_path else None
 
+    if not t1_path and not flair_path:
+        raise ValueError("At least one modality (T1 or FLAIR) must be provided")
+
     # T1 pipeline
     pipeline = PreprocessingPipeline()
     if t1_path:
@@ -125,7 +128,10 @@ def run_pipeline(
             result["wmh"] = wmh_result.to_dict()
         except Exception as e:
             logger.error(f"WMH segmentation failed: {e}")
-            result["wmh"] = {"error": "WMH segmentation failed"}
+            from synapse_d.pipeline.wmh import WMHResult
+            result["wmh"] = WMHResult(
+                success=False, errors=[f"WMH segmentation failed: {type(e).__name__}"]
+            ).to_dict()
 
     # Step 4: Normative comparison (if age provided and morphometrics available)
     # Merge WMH volume into morphometrics for unified normative comparison

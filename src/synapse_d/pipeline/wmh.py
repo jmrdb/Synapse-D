@@ -145,6 +145,18 @@ def segment_wmh(
     # Step 3: Quantification
     _quantify_wmh(result, wmh_mask_path, mask_path, subject_id)
 
+    # Sanity check: WMH > 300mL is almost certainly a segmentation error
+    # (e.g., skull/fat mistakenly labeled as WMH in fallback mode)
+    if result.wmh_volume_ml > 300:
+        logger.error(f"[{subject_id}] WMH volume {result.wmh_volume_ml:.1f} mL exceeds "
+                     f"300 mL sanity limit — likely segmentation error")
+        result.success = False
+        result.errors.append(
+            f"WMH volume ({result.wmh_volume_ml:.0f} mL) exceeds physiological limit. "
+            f"Segmentation may have included non-brain tissue."
+        )
+        return result
+
     result.success = True
     logger.info(f"[{subject_id}] WMH: {result.wmh_volume_ml:.1f} mL, "
                 f"Fazekas {result.fazekas_grade}, {result.wmh_count} lesions")
