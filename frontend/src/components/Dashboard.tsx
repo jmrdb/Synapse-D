@@ -7,7 +7,7 @@
 "use client";
 
 import { useState } from "react";
-import ADRiskCard from "./ADRiskCard";
+import ADRiskCard, { type ADRiskData } from "./ADRiskCard";
 import BrainViewer from "./BrainViewer";
 import LongitudinalChart from "./LongitudinalChart";
 import MRIUploader from "./MRIUploader";
@@ -211,8 +211,23 @@ export default function Dashboard() {
         )}
 
         {/* AD Risk Assessment */}
-        {result?.result?.ad_risk && !("error" in result.result.ad_risk) && (
-          <ADRiskCard data={result.result.ad_risk as any} />
+        {result?.result?.ad_risk && "risk_score" in result.result.ad_risk && (
+          <ADRiskCard data={result.result.ad_risk as ADRiskData} />
+        )}
+
+        {/* AD Risk — insufficient data notice */}
+        {result?.result?.ad_risk && "risk_score" in result.result.ad_risk
+          && result.result.ad_risk.risk_level === "insufficient_data" && (
+          <div style={{
+            background: "rgba(255,212,59,0.1)",
+            border: "1px solid #ffd43b33",
+            borderRadius: "8px",
+            padding: "12px",
+          }}>
+            <div style={{ fontSize: "13px", color: "#ffd43b" }}>
+              AD 위험도 평가를 위한 바이오마커가 부족합니다. T1 MRI 구조 분석 데이터가 필요합니다.
+            </div>
+          </div>
         )}
 
         {/* Morphometry Charts */}

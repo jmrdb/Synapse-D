@@ -169,11 +169,23 @@ def assess_ad_risk(
             "weighted_contribution": round(risk_contrib * weight, 1),
         })
 
+    # Check data sufficiency — at least 40% of total biomarker weight required
+    # to prevent over-normalization from a single biomarker
+    MIN_WEIGHT_THRESHOLD = 0.4
+    if total_weight < MIN_WEIGHT_THRESHOLD:
+        logger.warning(f"[{subject_id}] Insufficient biomarkers for AD risk "
+                       f"(weight={total_weight:.2f} < {MIN_WEIGHT_THRESHOLD})")
+        result.risk_level = "insufficient_data"
+        result.classification = "unknown"
+        result.recommendations = [
+            "AD 위험도를 신뢰성 있게 산출하기 위한 바이오마커가 부족합니다.",
+            "T1 MRI 기반 구조 분석(해마 부피, 피질 두께)이 필요합니다.",
+        ]
+        result.method = "insufficient_data"
+        return result
+
     # Normalize to 0-100
-    if total_weight > 0:
-        risk_score = weighted_risk / total_weight
-    else:
-        risk_score = 0.0
+    risk_score = weighted_risk / total_weight
 
     # Age-based base risk adjustment (older = higher baseline)
     if age is not None and age > 60:
@@ -223,21 +235,49 @@ def _z_to_risk(z: float) -> float:
     return max(0, min(100, risk))
 
 
-def _risk_to_probabilities(risk_score: float) -> dict:
-    """Convert risk score to approximate NC/MCI/AD probabilities.
+def _risk_to_probabilities(risk_score: float) -> dict[str, float]:
+    """Convert risk score to smoothly interpolated NC/MCI/AD probabilities.
 
-    Simple softmax-like distribution based on risk score position.
+    Uses linear interpolation between anchor points to prevent
+    cliff effects in longitudinal tracking — a 0.2-point score change
+    should produce a ~0.5% probability shift, not a 35% jump.
+
+    Anchor points (risk_score → NC, MCI, AD):
+        0  → 0.90, 0.08, 0.02
+       25  → 0.60, 0.30, 0.10
+       50  → 0.15, 0.50, 0.35
+       75  → 0.05, 0.30, 0.65
+      100  → 0.02, 0.10, 0.88
     """
-    if risk_score < 20:
-        return {"NC": 0.85, "MCI": 0.12, "AD": 0.03}
-    elif risk_score < 40:
-        return {"NC": 0.55, "MCI": 0.35, "AD": 0.10}
-    elif risk_score < 60:
-        return {"NC": 0.20, "MCI": 0.50, "AD": 0.30}
-    elif risk_score < 80:
-        return {"NC": 0.08, "MCI": 0.37, "AD": 0.55}
-    else:
-        return {"NC": 0.03, "MCI": 0.17, "AD": 0.80}
+    anchors = [
+        (0,   0.90, 0.08, 0.02),
+        (25,  0.60, 0.30, 0.10),
+        (50,  0.15, 0.50, 0.35),
+        (75,  0.05, 0.30, 0.65),
+        (100, 0.02, 0.10, 0.88),
+    ]
+
+    # Clamp score
+    s = max(0.0, min(100.0, risk_score))
+
+    # Find surrounding anchors and interpolate
+    for i in range(len(anchors) - 1):
+        s_low, nc_low, mci_low, ad_low = anchors[i]
+        s_high, nc_high, mci_high, ad_high = anchors[i + 1]
+        if s_low <= s <= s_high:
+            t = (s - s_low) / (s_high - s_low) if s_high > s_low else 0.0
+            nc = nc_low + t * (nc_high - nc_low)
+            mci = mci_low + t * (mci_high - mci_low)
+            ad = ad_low + t * (ad_high - ad_low)
+            # Normalize to ensure sum = 1.0
+            total = nc + mci + ad
+            return {
+                "NC": round(nc / total, 3),
+                "MCI": round(mci / total, 3),
+                "AD": round(ad / total, 3),
+            }
+
+    return {"NC": 0.02, "MCI": 0.10, "AD": 0.88}
 
 
 def _generate_recommendations(

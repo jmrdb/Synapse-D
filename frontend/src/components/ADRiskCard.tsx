@@ -11,7 +11,7 @@ import {
   Cell, PieChart, Pie,
 } from "recharts";
 
-interface ADRiskData {
+export interface ADRiskData {
   risk_score: number;
   risk_level: string;
   classification: string;
