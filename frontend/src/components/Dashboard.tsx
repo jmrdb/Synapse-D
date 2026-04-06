@@ -159,6 +159,31 @@ export default function Dashboard() {
                 )}
               </div>
             )}
+
+            {/* CMB Card */}
+            {(result?.result as any)?.microbleeds?.success && (() => {
+              const cmb = (result?.result as any).microbleeds;
+              return (
+                <div style={cardStyle}>
+                  <div style={cardLabelStyle}>Microbleeds (SWI)</div>
+                  <div style={{
+                    ...cardValueStyle,
+                    color: cmb.cmb_count === 0 ? "#51cf66"
+                      : cmb.cmb_count <= 2 ? "#ffd43b"
+                      : cmb.cmb_count <= 10 ? "#ff922b" : "#ff6b6b",
+                  }}>
+                    {cmb.cmb_count}
+                    <span style={{ fontSize: "14px" }}> CMBs</span>
+                  </div>
+                  <div style={{ fontSize: "12px", color: "#666" }}>
+                    {cmb.mars_category.replace("_", " ")}
+                    {cmb.regional_counts && (
+                      <> · L:{cmb.regional_counts.lobar} D:{cmb.regional_counts.deep} I:{cmb.regional_counts.infratentorial}</>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
 

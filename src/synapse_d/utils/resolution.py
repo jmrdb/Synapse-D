@@ -42,6 +42,7 @@ class Modality(str, Enum):
     T2 = "T2"
     FLAIR = "FLAIR"
     DWI = "DWI"
+    SWI = "SWI"
     UNKNOWN = "unknown"
 
 
@@ -166,7 +167,7 @@ def _classify_tier(max_dim: float, modality: Modality) -> AnalysisTier:
     T2/FLAIR/DWI are volume-only by design, so they get at least STANDARD
     tier (thickness is never applicable for these modalities).
     """
-    if modality in (Modality.T2, Modality.FLAIR, Modality.DWI):
+    if modality in (Modality.T2, Modality.FLAIR, Modality.DWI, Modality.SWI):
         # Non-T1 modalities: volume-only, thickness N/A
         # Even 5mm FLAIR is usable for SynthSeg volumetrics
         if max_dim <= _STANDARD_THRESHOLD:
@@ -258,6 +259,8 @@ def _detect_modality(modality_str: str, nifti_path: Path) -> Modality:
         return Modality.FLAIR
     if s in ("DWI", "DMRI", "DTI", "DIFFUSION"):
         return Modality.DWI
+    if s in ("SWI", "SUSCEPTIBILITY"):
+        return Modality.SWI
 
     # Try to detect from filename (BIDS convention)
     name = nifti_path.name.lower()
@@ -267,6 +270,8 @@ def _detect_modality(modality_str: str, nifti_path: Path) -> Modality:
         return Modality.FLAIR
     if "_t2w" in name or "_t2_" in name:
         return Modality.T2
+    if "_swi" in name:
+        return Modality.SWI
     if "_dwi" in name or "_dti" in name:
         return Modality.DWI
 

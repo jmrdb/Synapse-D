@@ -81,6 +81,14 @@ export interface AnalysisResult {
     } | {
       error: string;
     };
+    microbleeds?: {
+      cmb_count: number;
+      regional_counts: { lobar: number; deep: number; infratentorial: number };
+      mars_category: string;
+      clinical_significance: string;
+      success: boolean;
+      errors: string[];
+    };
     wmh?: {
       wmh_volume_mm3: number;
       wmh_volume_ml: number;

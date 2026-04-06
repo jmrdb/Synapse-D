@@ -36,11 +36,12 @@ def run_pipeline(
     chronological_age: float | None = None,
     sex: str | None = None,
     flair_path: Path | str | None = None,
+    swi_path: Path | str | None = None,
 ) -> dict:
     """Execute the full analysis pipeline.
 
     Runs T1 pipeline (brain extraction, segmentation, Brain Age) and
-    optionally FLAIR/WMH pipeline if FLAIR data is available.
+    optionally FLAIR/WMH and SWI/CMB pipelines if data is available.
 
     Args:
         t1_path: Path to T1w NIfTI file (None if only FLAIR analysis).
@@ -56,8 +57,10 @@ def run_pipeline(
 
     if isinstance(flair_path, str):
         flair_path = Path(flair_path) if flair_path else None
+    if isinstance(swi_path, str):
+        swi_path = Path(swi_path) if swi_path else None
 
-    if not t1_path and not flair_path:
+    if not t1_path and not flair_path and not swi_path:
         raise ValueError("At least one modality (T1 or FLAIR) must be provided")
 
     # T1 pipeline
@@ -133,11 +136,27 @@ def run_pipeline(
                 success=False, errors=[f"WMH segmentation failed: {type(e).__name__}"]
             ).to_dict()
 
+    # Step 3b: CMB detection from SWI (if available)
+    if swi_path and swi_path.exists():
+        try:
+            from synapse_d.pipeline.microbleed import detect_microbleeds
+
+            cmb_result = detect_microbleeds(swi_path)
+            result["microbleeds"] = cmb_result.to_dict()
+        except Exception as e:
+            logger.error(f"CMB detection failed: {e}")
+            result["microbleeds"] = {
+                "success": False, "cmb_count": 0,
+                "errors": [f"CMB detection failed: {type(e).__name__}"],
+            }
+
     # Step 4: Normative comparison (if age provided and morphometrics available)
-    # Merge WMH volume into morphometrics for unified normative comparison
+    # Merge WMH + CMB into morphometrics for unified normative comparison
     morpho_for_norm = dict(preproc_result.morphometrics)
     if "wmh" in result and isinstance(result["wmh"], dict) and "wmh_volume_ml" in result["wmh"]:
         morpho_for_norm["wmh_volume_ml"] = result["wmh"]["wmh_volume_ml"]
+    if "microbleeds" in result and isinstance(result["microbleeds"], dict):
+        morpho_for_norm["cmb_count"] = result["microbleeds"].get("cmb_count", 0)
     if chronological_age is not None and morpho_for_norm:
         try:
             from synapse_d.models.normative import compare_normative
@@ -228,19 +247,22 @@ def analyze_mri_task(
     chronological_age: float | None = None,
     sex: str | None = None,
     flair_path_str: str | None = None,
+    swi_path_str: str | None = None,
 ) -> dict:
     """Celery task: run full MRI analysis pipeline asynchronously.
 
     Args:
-        t1_path_str: String path to T1w NIfTI file (None for FLAIR-only).
+        t1_path_str: String path to T1w NIfTI file.
         chronological_age: Optional actual age for Brain Age Gap.
         sex: Optional biological sex.
-        flair_path_str: Optional string path to FLAIR NIfTI for WMH analysis.
+        flair_path_str: Optional FLAIR NIfTI for WMH analysis.
+        swi_path_str: Optional SWI NIfTI for microbleed detection.
 
     Returns:
-        Dict with preprocessing, brain age, WMH, and normative results.
+        Dict with preprocessing, brain age, WMH, CMB, and normative results.
     """
     self.update_state(state="PREPROCESSING", meta={"step": "brain_extraction"})
     t1 = Path(t1_path_str) if t1_path_str else None
     flair = Path(flair_path_str) if flair_path_str else None
-    return run_pipeline(t1, chronological_age, sex, flair)
+    swi = Path(swi_path_str) if swi_path_str else None
+    return run_pipeline(t1, chronological_age, sex, flair, swi)

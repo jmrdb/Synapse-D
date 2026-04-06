@@ -62,6 +62,7 @@ def _run_sync(
     chronological_age: float | None,
     sex: str | None = None,
     flair_path: Path | None = None,
+    swi_path: Path | None = None,
 ) -> dict:
     """Execute pipeline synchronously and return unified response.
 
@@ -69,7 +70,7 @@ def _run_sync(
     """
     from synapse_d.api.tasks import run_pipeline
 
-    result = run_pipeline(t1_path, chronological_age, sex, flair_path)
+    result = run_pipeline(t1_path, chronological_age, sex, flair_path, swi_path)
     return {
         "job_id": uuid.uuid4().hex[:12],
         "status": "completed",
@@ -126,13 +127,14 @@ async def upload_mri(
         raise HTTPException(status_code=400, detail="Only .nii or .nii.gz files accepted")
 
     # Validate and normalize modality
-    valid_modalities = {"T1w", "T2w", "FLAIR", "DWI"}
+    valid_modalities = {"T1w", "T2w", "FLAIR", "DWI", "SWI"}
     mod = modality.upper().replace("-", "").replace("_", "")
     _modality_map = {
         "T1": "T1w", "T1W": "T1w", "T1WEIGHTED": "T1w",
         "T2": "T2w", "T2W": "T2w", "T2WEIGHTED": "T2w",
         "FLAIR": "FLAIR", "T2FLAIR": "FLAIR",
         "DWI": "DWI", "DTI": "DWI", "DMRI": "DWI",
+        "SWI": "SWI", "SUSCEPTIBILITY": "SWI",
     }
     modality = _modality_map.get(mod, modality)
     if modality not in valid_modalities:
@@ -193,16 +195,18 @@ async def start_analysis(
     # Find available modalities
     t1_files = list(subject_dir.glob(f"{subject_id}_T1w*"))
     flair_files = list(subject_dir.glob(f"{subject_id}_FLAIR*"))
+    swi_files = list(subject_dir.glob(f"{subject_id}_SWI*"))
 
-    if not t1_files and not flair_files:
+    if not t1_files and not flair_files and not swi_files:
         raise HTTPException(status_code=404, detail="No MRI files found for subject")
 
     t1_path = t1_files[0] if t1_files else None
     flair_path = flair_files[0] if flair_files else None
+    swi_path = swi_files[0] if swi_files else None
 
     # Synchronous execution (dev/test or Celery unavailable)
     if sync:
-        return _run_sync(t1_path, chronological_age, sex, flair_path)
+        return _run_sync(t1_path, chronological_age, sex, flair_path, swi_path)
 
     # Async execution via Celery
     try:
@@ -213,10 +217,11 @@ async def start_analysis(
             chronological_age,
             sex,
             str(flair_path) if flair_path else None,
+            str(swi_path) if swi_path else None,
         )
         return {"job_id": task.id, "status": "submitted"}
     except Exception:
-        return _run_sync(t1_path, chronological_age, sex, flair_path)
+        return _run_sync(t1_path, chronological_age, sex, flair_path, swi_path)
 
 
 @app.get("/api/v1/results/{job_id}")
