@@ -191,12 +191,16 @@ def _extract_brain_swi(
 
     except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         logger.warning(f"[{subject_id}] HD-BET unavailable, using SWI intensity fallback")
-        # Fallback: Otsu-like threshold
+        # Fallback: use a LOW threshold to preserve dark CMB candidates
+        # SWI CMBs are hypointense — aggressive skull stripping removes them
+        # Use 2nd percentile (very conservative) to keep dark brain voxels
         nonzero = data[data > 0]
         if len(nonzero) < 1000:
             return None, None
-        threshold = np.percentile(nonzero, 15)
+        threshold = np.percentile(nonzero, 2)
         mask = data > threshold
+        logger.info(f"[{subject_id}] SWI fallback mask: threshold={threshold:.1f}, "
+                    f"voxels={mask.sum():,}")
         return data * mask, mask
 
 
@@ -214,20 +218,29 @@ def _detect_cmb_candidates(
     """
     logger.info(f"[{subject_id}] CMB Step 2/4: Candidate detection")
 
-    # Compute local statistics in brain region
-    brain_voxels = brain_data[brain_mask]
+    # Compute statistics on brain region only
+    brain_voxels = brain_data[brain_mask & (brain_data > 0)]
     if len(brain_voxels) < 1000:
         return np.zeros_like(brain_data, dtype=bool)
 
-    brain_mean = brain_voxels.mean()
-    brain_std = brain_voxels.std()
+    brain_mean = float(brain_voxels.mean())
+    brain_std = float(brain_voxels.std())
 
     # CMB candidates: voxels significantly darker than average
-    # (below mean - 2.5*std, within brain)
     dark_threshold = brain_mean - 2.5 * brain_std
+
+    # SWI intensity distributions are often highly skewed (many dark voxels).
+    # If mean-2.5*std falls below zero, the threshold is useless because
+    # all positive voxels pass. Fall back to percentile-based detection.
+    if dark_threshold <= 0:
+        dark_threshold = float(np.percentile(brain_voxels, 5))
+        logger.info(f"[{subject_id}] Skewed SWI distribution (mean-2.5*std={brain_mean - 2.5 * brain_std:.0f}), "
+                    f"using 5th percentile threshold: {dark_threshold:.1f}")
+
     candidates = (brain_data < dark_threshold) & (brain_data > 0) & brain_mask
 
-    logger.info(f"[{subject_id}] Dark voxel candidates: {candidates.sum()}")
+    logger.info(f"[{subject_id}] Dark threshold={dark_threshold:.1f}, "
+                f"candidates: {candidates.sum()}")
     return candidates
 
 
