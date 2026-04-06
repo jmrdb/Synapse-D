@@ -161,24 +161,35 @@ export default function Dashboard() {
             )}
 
             {/* CMB Card */}
-            {result?.result?.microbleeds?.success && (
+            {result?.result?.microbleeds && (
               <div style={cardStyle}>
                 <div style={cardLabelStyle}>Microbleeds (SWI)</div>
-                <div style={{
-                  ...cardValueStyle,
-                  color: result.result.microbleeds.cmb_count === 0 ? "#51cf66"
-                    : result.result.microbleeds.cmb_count <= 2 ? "#ffd43b"
-                    : result.result.microbleeds.cmb_count <= 10 ? "#ff922b" : "#ff6b6b",
-                }}>
-                  {result.result.microbleeds.cmb_count}
-                  <span style={{ fontSize: "14px" }}> CMBs</span>
-                </div>
-                <div style={{ fontSize: "12px", color: "#666" }}>
-                  {result.result.microbleeds.mars_category.replace("_", " ")}
-                  {result.result.microbleeds.regional_counts && (
-                    <> · L:{result.result.microbleeds.regional_counts.lobar} D:{result.result.microbleeds.regional_counts.deep} I:{result.result.microbleeds.regional_counts.infratentorial}</>
-                  )}
-                </div>
+                {result.result.microbleeds.success ? (
+                  <>
+                    <div style={{
+                      ...cardValueStyle,
+                      color: result.result.microbleeds.cmb_count === 0 ? "#51cf66"
+                        : result.result.microbleeds.cmb_count <= 2 ? "#ffd43b"
+                        : result.result.microbleeds.cmb_count <= 10 ? "#ff922b" : "#ff6b6b",
+                    }}>
+                      {result.result.microbleeds.cmb_count}
+                      <span style={{ fontSize: "14px" }}> CMBs</span>
+                    </div>
+                    <div style={{ fontSize: "12px", color: "#666" }}>
+                      {result.result.microbleeds.mars_category.replace("_", " ")}
+                      {result.result.microbleeds.regional_counts && (
+                        <> · L:{result.result.microbleeds.regional_counts.lobar} D:{result.result.microbleeds.regional_counts.deep} I:{result.result.microbleeds.regional_counts.infratentorial}</>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div style={{ marginTop: "8px" }}>
+                    <div style={{ color: "#ff8787", fontSize: "14px" }}>CMB 분석 실패</div>
+                    <div style={{ fontSize: "12px", color: "#888", marginTop: "4px" }}>
+                      {result.result.microbleeds.errors?.[0] || "알 수 없는 오류"}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -414,19 +414,13 @@ def _interpret_cmbs(count: int, mars: str, regional: dict) -> str:
 def _find_si_axis(affine: np.ndarray) -> int:
     """Find the voxel axis most aligned with Superior-Inferior direction.
 
-    The NIfTI affine encodes the mapping from voxel to world (RAS) coordinates.
-    The S-I direction corresponds to the 3rd world axis (index 2 in RAS).
-    We find which voxel axis has the largest component along this direction.
+    The NIfTI affine maps voxel indices to RAS world coordinates.
+    Row 2 of the rotation matrix gives the S-I component for each voxel axis.
+    We return the voxel axis with the largest S-I alignment.
 
     Returns:
         Voxel axis index (0, 1, or 2) corresponding to S-I.
     """
-    # The rotation part of the affine (3x3)
     rotation = affine[:3, :3]
-    # S-I is the 3rd axis in RAS (index 2)
-    si_components = np.abs(rotation[:, 2])  # Not right — this is columns
-    # Actually: each column j of the rotation tells which world direction
-    # voxel axis j maps to. We want the voxel axis whose column has the
-    # largest component in world axis 2 (Superior-Inferior).
-    si_alignment = np.abs(rotation[2, :])  # Row 2 = world S-I component for each voxel axis
+    si_alignment = np.abs(rotation[2, :])
     return int(np.argmax(si_alignment))

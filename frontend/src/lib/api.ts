@@ -83,10 +83,19 @@ export interface AnalysisResult {
     };
     microbleeds?: {
       cmb_count: number;
+      cmb_locations?: Array<{
+        id: number;
+        center_voxel: number[];
+        diameter_mm: number;
+        volume_mm3: number;
+        zone: string;
+      }>;
       regional_counts: { lobar: number; deep: number; infratentorial: number };
       mars_category: string;
       clinical_significance: string;
+      segmentation_url?: string;
       success: boolean;
+      used_fallback: boolean;
       errors: string[];
     };
     wmh?: {
@@ -105,10 +114,16 @@ export interface AnalysisResult {
   detail?: string;
 }
 
-export async function uploadMRI(file: File): Promise<UploadResponse> {
+export async function uploadMRI(
+  file: File,
+  modality: string = "T1w",
+  subjectId?: string,
+): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append("file", file);
-  const res = await fetch(`${API_BASE}/upload`, {
+  const params = new URLSearchParams({ modality });
+  if (subjectId) params.set("subject_id", subjectId);
+  const res = await fetch(`${API_BASE}/upload?${params}`, {
     method: "POST",
     body: formData,
   });
@@ -118,15 +133,20 @@ export async function uploadMRI(file: File): Promise<UploadResponse> {
 
 export async function startAnalysis(
   subjectId: string,
-  age?: number
+  age?: number,
+  sex?: string,
 ): Promise<AnalysisResult> {
-  const params = age ? `?chronological_age=${age}` : "";
-  const res = await fetch(`${API_BASE}/analyze/${subjectId}${params}`, {
+  const params = new URLSearchParams();
+  if (age !== undefined) params.set("chronological_age", String(age));
+  if (sex) params.set("sex", sex);
+  const qs = params.toString() ? `?${params}` : "";
+  const res = await fetch(`${API_BASE}/analyze/${subjectId}${qs}`, {
     method: "POST",
   });
   if (!res.ok) throw new Error(`Analysis failed: ${res.statusText}`);
   return res.json();
 }
+
 
 export async function getResults(jobId: string): Promise<AnalysisResult> {
   const res = await fetch(`${API_BASE}/results/${jobId}`);

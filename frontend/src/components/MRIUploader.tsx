@@ -16,6 +16,9 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
   const [status, setStatus] = useState<"idle" | "uploading" | "analyzing" | "done" | "error">("idle");
   const [message, setMessage] = useState("");
   const [age, setAge] = useState<string>("");
+  const [sex, setSex] = useState<string>("M");
+  const [modality, setModality] = useState<string>("T1w");
+  const [subjectId, setSubjectId] = useState<string>("");
   const [dragOver, setDragOver] = useState(false);
 
   const handleFile = useCallback(async (file: File) => {
@@ -29,13 +32,14 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
       // Upload
       setStatus("uploading");
       setMessage(`업로드 중: ${file.name}`);
-      const upload = await uploadMRI(file);
-      setMessage(`업로드 완료 (${upload.size_mb} MB). 분석 시작...`);
+      const upload = await uploadMRI(file, modality, subjectId || undefined);
+      setSubjectId(upload.subject_id);
+      setMessage(`업로드 완료 (${upload.size_mb} MB, ${upload.modality}). 분석 시작...`);
 
       // Analyze (async — Celery worker processes in background)
       setStatus("analyzing");
       const chronoAge = age ? parseFloat(age) : undefined;
-      const job = await startAnalysis(upload.subject_id, chronoAge);
+      const job = await startAnalysis(upload.subject_id, chronoAge, sex || undefined);
 
       // If already completed (sync fallback), skip polling
       if (job.status === "completed") {
@@ -74,7 +78,7 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
       setStatus("error");
       setMessage(`오류: ${err instanceof Error ? err.message : "알 수 없는 오류"}`);
     }
-  }, [age, onAnalysisComplete]);
+  }, [age, sex, modality, subjectId, onAnalysisComplete]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -85,6 +89,35 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
 
   return (
     <div style={{ maxWidth: "500px", margin: "0 auto" }}>
+      {/* Modality + Sex selection */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px", marginBottom: "12px" }}>
+        <div>
+          <label style={{ fontSize: "14px", color: "#888" }}>모달리티</label>
+          <select
+            value={modality}
+            onChange={(e) => setModality(e.target.value)}
+            style={inputStyle}
+          >
+            <option value="T1w">T1w</option>
+            <option value="FLAIR">FLAIR</option>
+            <option value="T2w">T2w</option>
+            <option value="SWI">SWI</option>
+            <option value="DWI">DWI</option>
+          </select>
+        </div>
+        <div>
+          <label style={{ fontSize: "14px", color: "#888" }}>성별</label>
+          <select
+            value={sex}
+            onChange={(e) => setSex(e.target.value)}
+            style={inputStyle}
+          >
+            <option value="M">남성 (M)</option>
+            <option value="F">여성 (F)</option>
+          </select>
+        </div>
+      </div>
+
       {/* Age input */}
       <div style={{ marginBottom: "12px" }}>
         <label style={{ fontSize: "14px", color: "#888" }}>
@@ -137,16 +170,27 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
           {status === "uploading" ? "..." : status === "analyzing" ? "..." : ""}
         </div>
         <div style={{ fontSize: "14px", color: "#888" }}>
-          {status === "idle" && "T1w MRI 파일을 드래그하거나 클릭하여 업로드"}
+          {status === "idle" && `${modality} MRI 파일을 드래그하거나 클릭하여 업로드`}
           {status === "uploading" && message}
           {status === "analyzing" && message}
           {status === "done" && message}
           {status === "error" && <span style={{ color: "#ff6b6b" }}>{message}</span>}
         </div>
         <div style={{ fontSize: "12px", color: "#555", marginTop: "8px" }}>
-          지원 형식: .nii, .nii.gz (T1-weighted MRI)
+          지원 형식: .nii, .nii.gz (T1w / FLAIR / T2w / SWI / DWI)
         </div>
       </div>
     </div>
   );
 }
+
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "8px 12px",
+  marginTop: "4px",
+  border: "1px solid #333",
+  borderRadius: "6px",
+  background: "#1a1a2e",
+  color: "white",
+  fontSize: "14px",
+};

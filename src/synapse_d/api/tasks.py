@@ -44,10 +44,11 @@ def run_pipeline(
     optionally FLAIR/WMH and SWI/CMB pipelines if data is available.
 
     Args:
-        t1_path: Path to T1w NIfTI file (None if only FLAIR analysis).
+        t1_path: Path to T1w NIfTI file (None if only FLAIR/SWI analysis).
         chronological_age: Optional actual age.
         sex: Optional biological sex ('M' or 'F') for normative comparison.
         flair_path: Optional path to T2-FLAIR NIfTI for WMH segmentation.
+        swi_path: Optional path to SWI NIfTI for microbleed detection.
 
     Returns:
         Dict with preprocessing, brain age, WMH, and normative results.
@@ -71,7 +72,7 @@ def run_pipeline(
         # FLAIR-only analysis — create minimal result
         from synapse_d.pipeline.preprocessing import PreprocessingResult
         preproc_result = PreprocessingResult(
-            subject_id=Path(str(flair_path)).name.split("_")[0] if flair_path else "unknown",
+            subject_id=Path(str(flair_path or swi_path)).name.split("_")[0] if (flair_path or swi_path) else "unknown",
             success=True,
         )
 
