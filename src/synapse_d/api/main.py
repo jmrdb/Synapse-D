@@ -124,12 +124,17 @@ async def upload_mri(
 ):
     """Upload an MRI NIfTI file.
 
-    Supports multiple modalities: T1w, T2w, FLAIR, DWI.
+    Supports multiple modalities: T1w, T2w, FLAIR, SWI, DWI, dMRI.
     To add another modality to an existing subject, pass the subject_id.
 
     Args:
         file: NIfTI file (.nii or .nii.gz, max 2GB).
-        modality: MRI modality — T1w, T2w, FLAIR, DWI (default: T1w).
+        modality: MRI modality (default: T1w).
+            - T1w: structural (cortical thickness, Brain Age)
+            - FLAIR: white matter lesions (WMH)
+            - SWI: microbleeds (CMB)
+            - DWI: clinical stroke detection (1-3 directions)
+            - dMRI: research tractography (30+ directions, requires bvals/bvecs)
         subject_id: Existing subject ID to add modality to. If omitted, creates new.
     """
     if not file.filename or not (

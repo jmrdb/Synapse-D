@@ -178,7 +178,7 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
           {status === "error" && <span style={{ color: "#ff6b6b" }}>{message}</span>}
         </div>
         <div style={{ fontSize: "12px", color: "#555", marginTop: "8px" }}>
-          지원 형식: .nii, .nii.gz (T1w / FLAIR / T2w / SWI / DWI)
+          지원 형식: .nii, .nii.gz (T1w / FLAIR / T2w / SWI / DWI / dMRI)
         </div>
       </div>
     </div>

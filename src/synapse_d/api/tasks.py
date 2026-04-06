@@ -204,22 +204,40 @@ def run_pipeline(
 
         # Search for dMRI (tractography-capable, 30+ directions) data
         # DWI (clinical stroke, 1-3 directions) is NOT used for tractography
-        dwi_path = None
-        if t1_path:
-            anat_dir = Path(str(t1_path)).parent
-            # Check anat/ for dMRI files (user may upload as modality=dMRI)
-            dmri_files = list(anat_dir.glob("*_dMRI*"))
-            if not dmri_files:
-                # Check sibling dwi/ directory (BIDS structure)
-                dwi_dir = anat_dir.parent / "dwi"
-                dmri_files = list(dwi_dir.glob("*_dwi.nii.gz")) if dwi_dir.exists() else []
-                if not dmri_files:
-                    dmri_files = list(dwi_dir.glob("*_dMRI*")) if dwi_dir.exists() else []
-            if dmri_files:
-                dwi_path = dmri_files[0]
+        dmri_path = None
+        # Build search directories from any available modality path
+        ref_path = t1_path or flair_path or swi_path
+        search_dirs = []
+        if ref_path:
+            ref = Path(str(ref_path))
+            search_dirs.append(ref.parent)                # anat/
+            search_dirs.append(ref.parent.parent / "dwi") # dwi/
+
+        for search_dir in search_dirs:
+            if not search_dir.exists():
+                continue
+            # First: explicit dMRI files
+            for candidate in search_dir.glob("*_dMRI*"):
+                if candidate.suffix in (".gz", ".nii"):
+                    dmri_path = candidate
+                    break
+            if dmri_path:
+                break
+            # Second: dwi files but only if they have 30+ directions (bval check)
+            for candidate in search_dir.glob("*_dwi.nii.gz"):
+                bval = candidate.with_name(candidate.name.replace(".nii.gz", ".bval"))
+                if not bval.exists():
+                    bval = candidate.with_name(candidate.name.replace(".nii.gz", ".bvals"))
+                if bval.exists():
+                    n_dirs = len(bval.read_text().split())
+                    if n_dirs >= 30:
+                        dmri_path = candidate
+                        break
+            if dmri_path:
+                break
 
         connectome = generate_connectome(
-            dwi_path=dwi_path,
+            dwi_path=dmri_path,
             morphometrics=preproc_result.morphometrics,
             subject_id=preproc_result.subject_id,
         )
