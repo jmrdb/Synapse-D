@@ -41,7 +41,8 @@ class Modality(str, Enum):
     T1 = "T1"
     T2 = "T2"
     FLAIR = "FLAIR"
-    DWI = "DWI"
+    DWI = "DWI"      # Diffusion Weighted Imaging (1-3 directions, stroke detection)
+    DMRI = "dMRI"    # Diffusion MRI / HARDI (30-160 directions, tractography)
     SWI = "SWI"
     UNKNOWN = "unknown"
 
@@ -167,7 +168,7 @@ def _classify_tier(max_dim: float, modality: Modality) -> AnalysisTier:
     T2/FLAIR/DWI are volume-only by design, so they get at least STANDARD
     tier (thickness is never applicable for these modalities).
     """
-    if modality in (Modality.T2, Modality.FLAIR, Modality.DWI, Modality.SWI):
+    if modality in (Modality.T2, Modality.FLAIR, Modality.DWI, Modality.DMRI, Modality.SWI):
         # Non-T1 modalities: volume-only, thickness N/A
         # Even 5mm FLAIR is usable for SynthSeg volumetrics
         if max_dim <= _STANDARD_THRESHOLD:
@@ -257,8 +258,10 @@ def _detect_modality(modality_str: str, nifti_path: Path) -> Modality:
         return Modality.T2
     if s in ("FLAIR", "T2-FLAIR", "T2FLAIR"):
         return Modality.FLAIR
-    if s in ("DWI", "DMRI", "DTI", "DIFFUSION"):
-        return Modality.DWI
+    if s in ("DWI", "DIFFUSIONWEIGHTED"):
+        return Modality.DWI    # Clinical DWI (stroke, 1-3 directions)
+    if s in ("DMRI", "DTI", "HARDI", "DIFFUSION"):
+        return Modality.DMRI   # Research dMRI (tractography, 30-160 directions)
     if s in ("SWI", "SUSCEPTIBILITY"):
         return Modality.SWI
 
@@ -272,7 +275,9 @@ def _detect_modality(modality_str: str, nifti_path: Path) -> Modality:
         return Modality.T2
     if "_swi" in name:
         return Modality.SWI
-    if "_dwi" in name or "_dti" in name:
-        return Modality.DWI
+    if "_dmri" in name or "_hardi" in name or "_dti" in name:
+        return Modality.DMRI   # Tractography-capable diffusion
+    if "_dwi" in name:
+        return Modality.DWI    # Clinical DWI (stroke)
 
     return Modality.UNKNOWN

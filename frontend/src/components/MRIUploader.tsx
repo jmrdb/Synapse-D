@@ -98,11 +98,12 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
             onChange={(e) => setModality(e.target.value)}
             style={inputStyle}
           >
-            <option value="T1w">T1w</option>
-            <option value="FLAIR">FLAIR</option>
+            <option value="T1w">T1w (구조)</option>
+            <option value="FLAIR">FLAIR (백질 병변)</option>
             <option value="T2w">T2w</option>
-            <option value="SWI">SWI</option>
-            <option value="DWI">DWI</option>
+            <option value="SWI">SWI (미세출혈)</option>
+            <option value="DWI">DWI (뇌졸중, 임상용)</option>
+            <option value="dMRI">dMRI (트랙토그래피, 연구용)</option>
           </select>
         </div>
         <div>

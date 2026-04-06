@@ -138,13 +138,15 @@ async def upload_mri(
         raise HTTPException(status_code=400, detail="Only .nii or .nii.gz files accepted")
 
     # Validate and normalize modality
-    valid_modalities = {"T1w", "T2w", "FLAIR", "DWI", "SWI"}
+    valid_modalities = {"T1w", "T2w", "FLAIR", "DWI", "dMRI", "SWI"}
     mod = modality.upper().replace("-", "").replace("_", "")
     _modality_map = {
         "T1": "T1w", "T1W": "T1w", "T1WEIGHTED": "T1w",
         "T2": "T2w", "T2W": "T2w", "T2WEIGHTED": "T2w",
         "FLAIR": "FLAIR", "T2FLAIR": "FLAIR",
-        "DWI": "DWI", "DTI": "DWI", "DMRI": "DWI",
+        "DWI": "DWI",                          # Clinical DWI (stroke, 1-3 dir)
+        "DMRI": "dMRI", "DTI": "dMRI",         # Research dMRI (tractography, 30+ dir)
+        "HARDI": "dMRI", "DIFFUSION": "dMRI",
         "SWI": "SWI", "SUSCEPTIBILITY": "SWI",
     }
     modality = _modality_map.get(mod, modality)

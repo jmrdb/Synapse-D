@@ -202,13 +202,21 @@ def run_pipeline(
     try:
         from synapse_d.pipeline.connectome import generate_connectome
 
-        # Search for dMRI data in subject's upload directory
+        # Search for dMRI (tractography-capable, 30+ directions) data
+        # DWI (clinical stroke, 1-3 directions) is NOT used for tractography
         dwi_path = None
         if t1_path:
-            dwi_dir = Path(str(t1_path)).parent.parent / "dwi"
-            dwi_files = list(dwi_dir.glob("*_dwi.nii.gz")) if dwi_dir.exists() else []
-            if dwi_files:
-                dwi_path = dwi_files[0]
+            anat_dir = Path(str(t1_path)).parent
+            # Check anat/ for dMRI files (user may upload as modality=dMRI)
+            dmri_files = list(anat_dir.glob("*_dMRI*"))
+            if not dmri_files:
+                # Check sibling dwi/ directory (BIDS structure)
+                dwi_dir = anat_dir.parent / "dwi"
+                dmri_files = list(dwi_dir.glob("*_dwi.nii.gz")) if dwi_dir.exists() else []
+                if not dmri_files:
+                    dmri_files = list(dwi_dir.glob("*_dMRI*")) if dwi_dir.exists() else []
+            if dmri_files:
+                dwi_path = dmri_files[0]
 
         connectome = generate_connectome(
             dwi_path=dwi_path,
