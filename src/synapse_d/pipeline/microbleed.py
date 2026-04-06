@@ -145,7 +145,7 @@ def detect_microbleeds(
     )
 
     # Step 4: Quantification and classification
-    _quantify_cmbs(result, cmb_labels, brain_mask, voxel_size, data.shape[:3], subject_id)
+    _quantify_cmbs(result, cmb_labels, brain_mask, voxel_size, data.shape[:3], img.affine, subject_id)
 
     # Save CMB mask
     cmb_mask_path = out_dir / f"{subject_id}_CMB_mask.nii.gz"
@@ -209,8 +209,8 @@ def _detect_cmb_candidates(
     CMBs appear as small, round hypointense spots on SWI due to
     susceptibility effects of hemosiderin deposits.
 
-    Method: Local intensity analysis — voxels that are significantly
-    darker than their local neighborhood within the brain.
+    Method: Global intensity statistics — voxels significantly
+    darker than the brain-wide mean (below mean - 2.5*std).
     """
     logger.info(f"[{subject_id}] CMB Step 2/4: Candidate detection")
 
@@ -268,13 +268,13 @@ def _filter_candidates(
         if vol_mm3 < min_vol_mm3 or vol_mm3 > max_vol_mm3:
             continue
 
-        # Shape filter: check compactness (sphericity)
-        # Sphericity = (36π V²)^(1/3) / surface_area
-        # Simplified: check aspect ratio of bounding box
-        extents = [s.stop - s.start for s in slc]
-        if len(extents) == 3:
-            max_extent = max(extents)
-            min_extent = max(min(extents), 1)
+        # Shape filter: check aspect ratio in mm (not voxels)
+        # Anisotropic voxels (e.g., 0.5x0.5x2mm) would otherwise
+        # misclassify spherical CMBs as elongated
+        extents_mm = [(s.stop - s.start) * vs for s, vs in zip(slc, voxel_size)]
+        if len(extents_mm) == 3:
+            max_extent = max(extents_mm)
+            min_extent = max(min(extents_mm), 0.001)
             aspect_ratio = max_extent / min_extent
             # CMB should be roughly round — reject elongated structures (vessels)
             if aspect_ratio > 3.0:
@@ -295,10 +295,10 @@ def _filter_candidates(
 def _quantify_cmbs(
     result: MicrobleedResult, cmb_labels: np.ndarray,
     brain_mask: np.ndarray, voxel_size: list[float],
-    volume_shape: tuple, subject_id: str,
+    volume_shape: tuple, affine: np.ndarray, subject_id: str,
 ) -> None:
     """Quantify CMBs: count, size, and anatomical location (MARS)."""
-    from scipy.ndimage import find_objects, center_of_mass
+    from scipy.ndimage import find_objects
 
     logger.info(f"[{subject_id}] CMB Step 4/4: Quantification & MARS classification")
 
@@ -312,9 +312,13 @@ def _quantify_cmbs(
         result.regional_counts = {"lobar": 0, "deep": 0, "infratentorial": 0}
         return
 
+    # Determine which voxel axis corresponds to Superior-Inferior (SI)
+    # by finding the axis most aligned with the S-I direction in the affine
+    si_axis = _find_si_axis(affine)
+    si_height = volume_shape[si_axis]
+
     # Classify each CMB by MARS zone
     regional = {"lobar": 0, "deep": 0, "infratentorial": 0}
-    z_height = volume_shape[2]
     locations = []
 
     for i in range(1, n_cmbs + 1):
@@ -322,10 +326,10 @@ def _quantify_cmbs(
         vol_mm3 = float(component.sum() * voxel_vol_mm3)
         diameter_mm = 2 * (3 * vol_mm3 / (4 * np.pi)) ** (1 / 3)
 
-        # Find center of mass for location classification
+        # Find geometric center for location classification
         coords = np.argwhere(component)
         center = coords.mean(axis=0)
-        z_fraction = center[2] / z_height if z_height > 0 else 0.5
+        z_fraction = center[si_axis] / si_height if si_height > 0 else 0.5
 
         # MARS classification based on axial position
         zone = "lobar"  # default
@@ -405,3 +409,24 @@ def _interpret_cmbs(count: int, mars: str, regional: dict) -> str:
     )
 
     return " ".join(parts)
+
+
+def _find_si_axis(affine: np.ndarray) -> int:
+    """Find the voxel axis most aligned with Superior-Inferior direction.
+
+    The NIfTI affine encodes the mapping from voxel to world (RAS) coordinates.
+    The S-I direction corresponds to the 3rd world axis (index 2 in RAS).
+    We find which voxel axis has the largest component along this direction.
+
+    Returns:
+        Voxel axis index (0, 1, or 2) corresponding to S-I.
+    """
+    # The rotation part of the affine (3x3)
+    rotation = affine[:3, :3]
+    # S-I is the 3rd axis in RAS (index 2)
+    si_components = np.abs(rotation[:, 2])  # Not right — this is columns
+    # Actually: each column j of the rotation tells which world direction
+    # voxel axis j maps to. We want the voxel axis whose column has the
+    # largest component in world axis 2 (Superior-Inferior).
+    si_alignment = np.abs(rotation[2, :])  # Row 2 = world S-I component for each voxel axis
+    return int(np.argmax(si_alignment))

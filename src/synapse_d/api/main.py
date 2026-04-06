@@ -96,6 +96,17 @@ def _sanitize_result(result: dict) -> dict:
         preproc.pop(key, None)  # Remove absolute path
 
     result["preprocessing"] = preproc
+
+    # Sanitize paths in WMH and microbleeds results
+    for section in ("wmh", "microbleeds"):
+        data = result.get(section, {})
+        if isinstance(data, dict) and "segmentation_path" in data:
+            seg_path = data["segmentation_path"]
+            if seg_path and output_dir_str in str(seg_path):
+                relative = str(seg_path).split(output_dir_str)[-1].lstrip("/")
+                data["segmentation_url"] = f"/files/{relative}"
+            data.pop("segmentation_path", None)
+
     return result
 
 

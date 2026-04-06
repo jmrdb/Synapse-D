@@ -61,7 +61,7 @@ def run_pipeline(
         swi_path = Path(swi_path) if swi_path else None
 
     if not t1_path and not flair_path and not swi_path:
-        raise ValueError("At least one modality (T1 or FLAIR) must be provided")
+        raise ValueError("At least one modality (T1, FLAIR, or SWI) must be provided")
 
     # T1 pipeline
     pipeline = PreprocessingPipeline()
