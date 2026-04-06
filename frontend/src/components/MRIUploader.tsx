@@ -126,6 +126,8 @@ export default function MRIUploader({ onAnalysisComplete }: MRIUploaderProps) {
         </label>
         <input
           type="number"
+          min="0"
+          max="150"
           value={age}
           onChange={(e) => setAge(e.target.value)}
           placeholder="예: 45"

@@ -247,12 +247,13 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* AD Risk Assessment */}
-        {result?.result?.ad_risk && "risk_score" in result.result.ad_risk && (
+        {/* AD Risk Assessment — show card only if sufficient data */}
+        {result?.result?.ad_risk && "risk_score" in result.result.ad_risk
+          && result.result.ad_risk.risk_level !== "insufficient_data" && (
           <ADRiskCard data={result.result.ad_risk as ADRiskData} />
         )}
 
-        {/* AD Risk — insufficient data notice */}
+        {/* AD Risk — insufficient data notice (mutually exclusive with card) */}
         {result?.result?.ad_risk && "risk_score" in result.result.ad_risk
           && result.result.ad_risk.risk_level === "insufficient_data" && (
           <div style={{
@@ -268,8 +269,8 @@ export default function Dashboard() {
         )}
 
         {/* Structural Connectome */}
-        {result?.result && (result.result as any)?.connectome?.success && (
-          <ConnectomeView data={(result.result as any).connectome} />
+        {result?.result?.connectome?.success && (
+          <ConnectomeView data={result.result.connectome} />
         )}
 
         {/* Morphometry Charts */}

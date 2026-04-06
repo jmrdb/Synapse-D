@@ -122,6 +122,10 @@ def detect_microbleeds(
     try:
         img = nib.load(str(swi_path))
         data = np.asarray(img.dataobj, dtype=np.float32)
+        # Handle 4D SWI (magnitude + phase) — use first volume only
+        if data.ndim == 4:
+            logger.info(f"[{subject_id}] 4D SWI detected ({data.shape[3]} volumes), using first volume")
+            data = data[..., 0]
         voxel_size = [float(z) for z in img.header.get_zooms()[:3]]
         logger.info(f"[{subject_id}] SWI: shape={data.shape[:3]}, voxel={voxel_size}mm")
     except Exception as e:

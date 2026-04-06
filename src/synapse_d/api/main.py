@@ -39,6 +39,9 @@ app.add_middleware(
 )
 
 # Serve processed NIfTI files for Niivue frontend rendering
+# WARNING: No authentication — any user can access any subject's files via /files/
+# This is acceptable for local demo/RUO use. Production SaaS deployment MUST add
+# per-subject authentication middleware before this mount.
 settings.output_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/files", StaticFiles(directory=str(settings.output_dir)), name="files")
 
@@ -161,9 +164,19 @@ async def upload_mri(
             detail=f"Invalid modality '{modality}'. Supported: {', '.join(valid_modalities)}",
         )
 
-    content = await file.read()
-    if len(content) > MAX_UPLOAD_BYTES:
+    # Check Content-Length header first to reject oversized uploads early
+    if file.size and file.size > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="File too large (max 2GB)")
+
+    # Read with size tracking to prevent memory exhaustion
+    chunks = []
+    total = 0
+    while chunk := await file.read(8 * 1024 * 1024):  # 8MB chunks
+        total += len(chunk)
+        if total > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=413, detail="File too large (max 2GB)")
+        chunks.append(chunk)
+    content = b"".join(chunks)
 
     # Create or reuse subject
     if subject_id:
@@ -205,6 +218,10 @@ async def start_analysis(
         sync: Force synchronous execution.
     """
     _validate_subject_id(subject_id)
+    if sex is not None and sex.upper() not in ("M", "F"):
+        raise HTTPException(status_code=400, detail="sex must be 'M' or 'F'")
+    if sex:
+        sex = sex.upper()
 
     subject_dir = settings.upload_dir / subject_id / "anat"
     if not subject_dir.exists():

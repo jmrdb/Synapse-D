@@ -98,6 +98,26 @@ export interface AnalysisResult {
       used_fallback: boolean;
       errors: string[];
     };
+    connectome?: {
+      n_regions: number;
+      connectivity_matrix: number[][];
+      network_metrics: {
+        n_edges: number;
+        density: number;
+        mean_degree: number;
+        mean_clustering_coefficient: number;
+        hub_nodes: Array<{ region: string; degree: number }>;
+      };
+      method: string;
+      success: boolean;
+    };
+    identity_check?: {
+      is_same_subject: boolean;
+      ncc_score: number;
+      confidence: string;
+      message: string;
+      aligned: boolean;
+    };
     wmh?: {
       wmh_volume_mm3: number;
       wmh_volume_ml: number;
