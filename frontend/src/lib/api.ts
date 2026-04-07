@@ -174,6 +174,30 @@ export async function getResults(jobId: string): Promise<AnalysisResult> {
   return res.json();
 }
 
+export interface SubjectResults {
+  subject_id: string;
+  session_id: string;
+  scan_date: string;
+  age_at_scan: number;
+  tier: string;
+  brain_volume_cm3: number | null;
+  hippocampus_mm3: number | null;
+  cortical_thickness_mm: number | null;
+  brain_age?: { predicted_age: number; brain_age_gap: number | null };
+  wmh?: Record<string, any>;
+  microbleeds?: Record<string, any>;
+  normative?: Record<string, any>;
+  ad_risk?: Record<string, any>;
+  connectome?: Record<string, any>;
+  metadata?: Record<string, any>;
+}
+
+export async function getSubjectResults(subjectId: string): Promise<SubjectResults> {
+  const res = await fetch(`${API_BASE}/subject/${subjectId}/results`);
+  if (!res.ok) throw new Error(`Subject results fetch failed: ${res.statusText}`);
+  return res.json();
+}
+
 export interface LongitudinalData {
   subject_id: string;
   timepoint_count: number;

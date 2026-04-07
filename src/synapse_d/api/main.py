@@ -312,6 +312,62 @@ async def list_subjects():
     return {"subjects": subjects}
 
 
+@app.get("/api/v1/subject/{subject_id}/results")
+async def get_subject_results(subject_id: str):
+    """Get the latest analysis results for a subject.
+
+    Reconstructs results from processed outputs: morphometrics, brain age,
+    WMH, microbleeds, connectome, normative comparison, and AD risk.
+    """
+    _validate_subject_id(subject_id)
+
+    from synapse_d.models.longitudinal import _load_record
+
+    # Load latest timepoint data
+    timepoints = _load_record(subject_id)
+    if not timepoints:
+        from fastapi import HTTPException as HE
+        raise HE(status_code=404, detail=f"No analysis results for {subject_id}")
+
+    latest = timepoints[-1]
+
+    # Build result summary from timepoint + metadata
+    result: dict = {
+        "subject_id": subject_id,
+        "session_id": latest.session_id,
+        "scan_date": latest.scan_date,
+        "age_at_scan": latest.age_at_scan,
+        "tier": latest.tier,
+        "brain_volume_cm3": latest.brain_volume_cm3,
+        "hippocampus_mm3": latest.hippocampus_mm3,
+        "cortical_thickness_mm": latest.cortical_thickness_mm,
+    }
+
+    # Brain Age
+    if latest.brain_age is not None:
+        result["brain_age"] = {
+            "predicted_age": latest.brain_age,
+            "brain_age_gap": latest.brain_age_gap,
+        }
+
+    # Metadata (scanner, identity check, etc.)
+    result["metadata"] = latest.metadata
+
+    # Try to load additional results from processed directory
+    import json
+    result_file = settings.output_dir / subject_id / "latest_result.json"
+    if result_file.exists():
+        try:
+            saved = json.loads(result_file.read_text())
+            for key in ("wmh", "microbleeds", "normative", "ad_risk", "connectome"):
+                if key in saved:
+                    result[key] = saved[key]
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return result
+
+
 @app.get("/api/v1/longitudinal/{subject_id}")
 async def get_longitudinal_data(subject_id: str):
     """Get longitudinal analysis data for a subject.
