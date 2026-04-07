@@ -1,0 +1,70 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface text-gray-100 font-sans antialiased;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-surface-card border border-surface-border rounded-xl p-5;
+  }
+  .card-label {
+    @apply text-xs text-gray-500 uppercase tracking-wider mb-2;
+  }
+  .card-value {
+    @apply text-3xl font-bold text-brand-400;
+  }
+  .btn-primary {
+    @apply px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white rounded-lg
+           font-medium transition-colors;
+  }
+  .btn-secondary {
+    @apply px-4 py-2 bg-surface-hover hover:bg-surface-border text-gray-300
+           rounded-lg font-medium transition-colors border border-surface-border;
+  }
+  .sidebar-link {
+    @apply flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm
+           text-gray-400 hover:text-white hover:bg-surface-hover transition-colors;
+  }
+  .sidebar-link-active {
+    @apply bg-brand-500/10 text-brand-400 border-l-2 border-brand-400;
+  }
+  .tab {
+    @apply px-4 py-2 text-sm font-medium rounded-t-lg transition-colors;
+  }
+  .tab-active {
+    @apply bg-surface-card text-brand-400 border-b-2 border-brand-400;
+  }
+  .tab-inactive {
+    @apply text-gray-500 hover:text-gray-300;
+  }
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+  .badge-green {
+    @apply bg-green-500/15 text-green-400;
+  }
+  .badge-yellow {
+    @apply bg-yellow-500/15 text-yellow-400;
+  }
+  .badge-red {
+    @apply bg-red-500/15 text-red-400;
+  }
+  .badge-blue {
+    @apply bg-brand-500/15 text-brand-400;
+  }
+  .input {
+    @apply w-full px-3 py-2 bg-surface border border-surface-border rounded-lg
+           text-white text-sm focus:outline-none focus:border-brand-400
+           transition-colors;
+  }
+  .select {
+    @apply w-full px-3 py-2 bg-surface border border-surface-border rounded-lg
+           text-white text-sm focus:outline-none focus:border-brand-400
+           transition-colors appearance-none;
+  }
+}
