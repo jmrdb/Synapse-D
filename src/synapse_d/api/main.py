@@ -365,6 +365,17 @@ async def get_subject_results(subject_id: str):
         except (json.JSONDecodeError, OSError):
             pass
 
+    # Sanitize paths + remove large data not needed by frontend
+    output_dir_str = str(settings.output_dir)
+    for section in ("wmh", "microbleeds"):
+        data = result.get(section, {})
+        if isinstance(data, dict) and "segmentation_path" in data:
+            data.pop("segmentation_path", None)
+    conn = result.get("connectome", {})
+    if isinstance(conn, dict):
+        conn.pop("connectivity_matrix", None)
+        conn.pop("region_labels", None)
+
     return result
 
 

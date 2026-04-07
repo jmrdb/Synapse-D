@@ -51,7 +51,8 @@ def main():
     elif args.subject_id:
         # Load existing results
         subject_id = args.subject_id
-        result_file = Path(f"data/processed/{subject_id}/latest_result.json")
+        from synapse_d.config import settings
+        result_file = settings.output_dir / subject_id / "latest_result.json"
         if result_file.exists():
             result = json.loads(result_file.read_text())
         else:

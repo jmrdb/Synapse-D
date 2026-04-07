@@ -13,11 +13,17 @@ Usage:
     Path("report.html").write_text(html)
 """
 
+import html as html_mod
 import json
 from datetime import datetime
 from pathlib import Path
 
 from loguru import logger
+
+
+def _esc(value: object) -> str:
+    """Escape a value for safe HTML insertion — prevents XSS."""
+    return html_mod.escape(str(value)) if value is not None else "—"
 
 
 def generate_report(
@@ -46,7 +52,7 @@ def generate_report(
     ad_risk = result.get("ad_risk", {})
     connectome = result.get("connectome", {})
 
-    sid = result.get("subject_id", subject_id)
+    sid = _esc(result.get("subject_id", subject_id))
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     sections = []
@@ -135,7 +141,7 @@ def _section_header(sid: str, now: str, scanner: dict, resolution: dict) -> str:
         </div>
         <div class="patient-info">
             <span class="label">Scanner</span>
-            <span class="value">{scanner.get('manufacturer','?')} {scanner.get('model','?')} {scanner.get('field_strength_t',0)}T</span>
+            <span class="value">{_esc(scanner.get('manufacturer','?'))} {_esc(scanner.get('model','?'))} {scanner.get('field_strength_t',0)}T</span>
         </div>
         <div class="patient-info">
             <span class="label">Resolution</span>
@@ -205,12 +211,12 @@ def _section_normative(norm: dict) -> str:
         width = min(abs(z) / 4 * 100, 100)
         bars_html += f"""
         <div class="z-row">
-            <span class="z-label">{s['metric'].replace('_', ' ')}</span>
+            <span class="z-label">{_esc(s['metric'].replace('_', ' '))}</span>
             <div class="z-bar-bg">
                 <div class="z-bar" style="width:{width}%;background:{color}"></div>
             </div>
             <span class="z-value" style="color:{color}">{'+' if z > 0 else ''}{z:.2f}</span>
-            <span class="z-interp">{s['interpretation']}</span>
+            <span class="z-interp">{_esc(s['interpretation'])}</span>
         </div>"""
 
     icv = "✓" if norm.get("icv_normalized") else "—"
@@ -286,7 +292,7 @@ def _section_cmb(cmb: dict) -> str:
             </div>
             <div class="metric-card">
                 <div class="metric-label">MARS Classification</div>
-                <div class="metric-value blue">{mars.replace('_', ' ')}</div>
+                <div class="metric-value blue">{_esc(mars.replace('_', ' '))}</div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">Regional Distribution</div>
@@ -297,7 +303,7 @@ def _section_cmb(cmb: dict) -> str:
                 </div>
             </div>
         </div>
-        {f'<div class="clinical-note">{sig}</div>' if sig else ''}
+        {f'<div class="clinical-note">{_esc(sig)}</div>' if sig else ''}
         <canvas id="cmbChart" height="150"></canvas>
     </div>
     """
@@ -319,12 +325,12 @@ def _section_ad_risk(ad: dict) -> str:
         cc = "#ef4444" if c.get("weighted_contribution", 0) > 10 else "#eab308" if c.get("weighted_contribution", 0) > 5 else "#22c55e"
         contrib_html += f"""
         <div class="z-row">
-            <span class="z-label">{c['biomarker']} (z={c['z_score']:.1f})</span>
+            <span class="z-label">{_esc(c['biomarker'])} (z={c['z_score']:.1f})</span>
             <div class="z-bar-bg"><div class="z-bar" style="width:{w}%;background:{cc}"></div></div>
             <span class="z-value" style="color:{cc}">{c['weighted_contribution']:.1f}</span>
         </div>"""
 
-    recs_html = "".join(f"<li>{r}</li>" for r in recs if r)
+    recs_html = "".join(f"<li>{_esc(r)}</li>" for r in recs if r)
 
     return f"""
     <div class="section">
@@ -350,7 +356,7 @@ def _section_connectome(conn: dict) -> str:
 
     hub_html = ""
     for h in hubs[:5]:
-        hub_html += f"<div class='reg-item'><span class='mono'>{h['region']}</span><span>degree: {h['degree']}</span></div>"
+        hub_html += f"<div class='reg-item'><span class='mono'>{_esc(h['region'])}</span><span>degree: {h['degree']}</span></div>"
 
     return f"""
     <div class="section">

@@ -61,10 +61,12 @@ export default function AnalyzePage({ onComplete }: AnalyzePageProps) {
       // Poll
       setProgress("HD-BET 뇌 추출 처리 중... (CPU ~8분 소요)");
       const MAX_POLLS = 600;
+      let consecutiveErrors = 0;
       for (let i = 0; i < MAX_POLLS; i++) {
         await new Promise((r) => setTimeout(r, 3000));
         try {
           const result = await getResults(job.job_id);
+          consecutiveErrors = 0;
           if (result.status === "completed") {
             setStep("done");
             return;
@@ -78,7 +80,12 @@ export default function AnalyzePage({ onComplete }: AnalyzePageProps) {
             setProgress(`분석 진행 중... (${Math.round(i * 3 / 60)}분 경과)`);
           }
         } catch {
-          // Network error — retry silently
+          consecutiveErrors++;
+          if (consecutiveErrors >= 10) {
+            setError("서버 연결 실패 (30초간 응답 없음)");
+            setStep("upload");
+            return;
+          }
         }
       }
       setError("분석 시간 초과");
