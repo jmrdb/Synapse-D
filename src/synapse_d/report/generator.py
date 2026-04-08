@@ -83,6 +83,11 @@ def generate_report(
     if connectome.get("success"):
         sections.append(_section_connectome(connectome))
 
+    # Section 8: Brain Simulation (TVB)
+    simulation = result.get("simulation", {})
+    if simulation.get("success"):
+        sections.append(_section_simulation(simulation, connectome))
+
     # Disclaimer
     sections.append(_section_disclaimer())
 
@@ -371,6 +376,124 @@ def _section_connectome(conn: dict) -> str:
     """
 
 
+def _section_simulation(sim: dict, connectome: dict) -> str:
+    sc_fc = sim.get("sc_fc_correlation", 0)
+    fc_corr = sim.get("fc_mean_correlation", 0)
+    elapsed = sim.get("elapsed_seconds", 0)
+    model = _esc(sim.get("model", "unknown"))
+    n = sim.get("n_regions", 0)
+    eeg_pts = sim.get("eeg_timepoints", 0)
+
+    sc_fc_color = "#22c55e" if sc_fc > 0.3 else "#eab308" if sc_fc > 0.1 else "#ef4444"
+    sc_fc_pct = abs(sc_fc) * 100
+
+    # Encode SC and FC matrices as JSON for canvas rendering
+    sc_matrix = connectome.get("connectivity_matrix", [])
+    fc_matrix = sim.get("fc_matrix", [])
+
+    # Limit matrix size for inline JSON (avoid huge HTML)
+    max_render = 82
+    if len(sc_matrix) > max_render:
+        sc_matrix = [row[:max_render] for row in sc_matrix[:max_render]]
+    if len(fc_matrix) > max_render:
+        fc_matrix = [row[:max_render] for row in fc_matrix[:max_render]]
+
+    sc_json = json.dumps(sc_matrix)
+    fc_json = json.dumps(fc_matrix)
+
+    return f"""
+    <div class="section">
+        <h2>🧬 Brain Simulation (Digital Twin)</h2>
+        <p class="section-desc">
+            구조적 연결체(SC)를 기반으로 TVB 신경질량모델 시뮬레이션을 실행하여
+            기능적 연결체(FC)를 예측합니다.
+        </p>
+
+        <div class="metrics-row">
+            <div class="metric-card highlight" style="border-color:{sc_fc_color}40">
+                <div class="metric-label">SC-FC Correlation</div>
+                <div class="metric-value" style="color:{sc_fc_color}">
+                    {sc_fc:.3f}
+                </div>
+                <div class="metric-sub">구조가 기능의 {sc_fc_pct:.0f}%를 설명</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">FC Mean Correlation</div>
+                <div class="metric-value blue">{fc_corr:.3f}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Model</div>
+                <div class="metric-value purple" style="font-size:16px">{model}</div>
+            </div>
+            <div class="metric-card">
+                <div class="metric-label">Simulation</div>
+                <div class="metric-value green" style="font-size:16px">
+                    {n} regions · {eeg_pts} pts · {elapsed}s
+                </div>
+            </div>
+        </div>
+
+        <!-- SC vs FC Heatmap Comparison -->
+        <div class="sim-comparison">
+            <div class="sim-panel">
+                <div class="sim-panel-title">Structural Connectivity (SC)</div>
+                <div class="sim-panel-sub">MRI에서 추출한 뇌 배선</div>
+                <canvas id="scHeatmap" width="280" height="280"></canvas>
+            </div>
+            <div class="sim-arrow">
+                <div class="sim-arrow-icon">→</div>
+                <div class="sim-arrow-label">TVB<br>Simulation</div>
+            </div>
+            <div class="sim-panel">
+                <div class="sim-panel-title">Functional Connectivity (FC)</div>
+                <div class="sim-panel-sub">시뮬레이션된 뇌 활동 패턴</div>
+                <canvas id="fcHeatmap" width="280" height="280"></canvas>
+            </div>
+        </div>
+
+        <div class="sim-legend">
+            <div class="sim-legend-bar"></div>
+            <div class="sim-legend-labels">
+                <span>0 (없음)</span>
+                <span>연결 강도</span>
+                <span>1 (최대)</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    (function() {{
+        function drawHeatmap(canvasId, matrix) {{
+            var canvas = document.getElementById(canvasId);
+            if (!canvas || !matrix || matrix.length === 0) return;
+            var ctx = canvas.getContext('2d');
+            var n = matrix.length;
+            var size = canvas.width;
+            var cell = size / n;
+
+            for (var i = 0; i < n; i++) {{
+                for (var j = 0; j < n; j++) {{
+                    var v = Math.abs(matrix[i][j]);
+                    v = Math.min(v, 1.0);
+                    // Blue-to-red colormap
+                    var r = Math.round(v * 255);
+                    var g = Math.round(v * 60);
+                    var b = Math.round((1 - v) * 120);
+                    ctx.fillStyle = 'rgb(' + r + ',' + g + ',' + b + ')';
+                    ctx.fillRect(j * cell, i * cell, cell + 0.5, cell + 0.5);
+                }}
+            }}
+        }}
+
+        var sc = {sc_json};
+        var fc = {fc_json};
+        drawHeatmap('scHeatmap', sc);
+        drawHeatmap('fcHeatmap', fc);
+    }})();
+    </script>
+    """
+
+
 def _section_disclaimer() -> str:
     return """
     <div class="disclaimer">
@@ -463,6 +586,21 @@ def _get_css() -> str:
     .disclaimer p { font-size: 11px; color: #666; margin: 4px 0; line-height: 1.5; }
 
     canvas { margin-top: 16px; background: #12121e; border-radius: 8px; padding: 10px; }
+
+    .sim-comparison { display: flex; align-items: center; justify-content: center;
+                      gap: 20px; margin: 24px 0; flex-wrap: wrap; }
+    .sim-panel { text-align: center; }
+    .sim-panel-title { font-size: 13px; font-weight: 600; color: #ccc; margin-bottom: 2px; }
+    .sim-panel-sub { font-size: 10px; color: #666; margin-bottom: 10px; }
+    .sim-panel canvas { border-radius: 8px; border: 1px solid #1e1e30; }
+    .sim-arrow { text-align: center; padding: 0 10px; }
+    .sim-arrow-icon { font-size: 36px; color: #3b82f6; }
+    .sim-arrow-label { font-size: 10px; color: #888; margin-top: 4px; }
+    .sim-legend { max-width: 300px; margin: 10px auto; text-align: center; }
+    .sim-legend-bar { height: 10px; border-radius: 5px;
+                      background: linear-gradient(to right, rgb(0,0,120), rgb(128,30,50), rgb(255,60,0)); }
+    .sim-legend-labels { display: flex; justify-content: space-between;
+                         font-size: 9px; color: #666; margin-top: 3px; }
 
     @media print {
         body { background: white; color: #333; }
