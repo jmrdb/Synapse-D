@@ -73,8 +73,12 @@ services:
     build:
       context: ../tvb_worker
       dockerfile: Dockerfile
-    ports:
-      - "8001:8001"
+    # Internal only — accessed by worker via Docker network, not exposed to host
+    # For local dev testing: uncomment ports below
+    # ports:
+    #   - "8001:8001"
+    expose:
+      - "8001"
 
   # Redis (message broker + result backend for Celery job state)
   redis:

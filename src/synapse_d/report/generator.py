@@ -99,7 +99,7 @@ def generate_report(
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{title} — {sid}</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+{"<script src='https://cdn.jsdelivr.net/npm/chart.js@4'></script>" if cmb.get("success") and any(v for v in cmb.get("regional_counts", {}).values() if isinstance(v, (int, float)) and v > 0) else ""}
 <style>
 {_get_css()}
 </style>
@@ -389,7 +389,7 @@ def _section_simulation(sim: dict, connectome: dict) -> str:
     eeg_pts = sim.get("eeg_timepoints", 0)
 
     sc_fc_color = "#22c55e" if sc_fc > 0.3 else "#eab308" if sc_fc > 0.1 else "#ef4444"
-    sc_fc_pct = abs(sc_fc) * 100
+    sc_fc_r2 = sc_fc ** 2 * 100  # R-squared: variance explained
 
     # Encode SC and FC matrices as JSON for canvas rendering
     sc_matrix = connectome.get("connectivity_matrix", [])
@@ -419,7 +419,7 @@ def _section_simulation(sim: dict, connectome: dict) -> str:
                 <div class="metric-value" style="color:{sc_fc_color}">
                     {sc_fc:.3f}
                 </div>
-                <div class="metric-sub">구조가 기능의 {sc_fc_pct:.0f}%를 설명</div>
+                <div class="metric-sub">구조가 기능 분산의 {sc_fc_r2:.1f}%를 설명 (R²)</div>
             </div>
             <div class="metric-card">
                 <div class="metric-label">FC Mean Correlation</div>

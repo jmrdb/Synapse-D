@@ -278,7 +278,7 @@ def run_pipeline(
     except Exception as e:
         logger.warning(f"Failed to save longitudinal timepoint: {e}")
 
-    # Step 7: Save latest result to file (for subject detail page retrieval)
+    # Step 8: Save latest result to file (for subject detail page retrieval)
     try:
         import json
         result_dir = settings.output_dir / preproc_result.subject_id

@@ -52,6 +52,7 @@ class SimulationResult:
             "success": self.success,
             "n_regions": self.n_regions,
             "eeg_timepoints": self.eeg_timepoints,
+            "fc_matrix": self.fc_matrix,
             "fc_mean_correlation": round(self.fc_mean_correlation, 4),
             "sc_fc_correlation": round(self.sc_fc_correlation, 4),
             "elapsed_seconds": round(self.elapsed_seconds, 2),
@@ -96,7 +97,10 @@ def run_brain_simulation(
         )
 
         if resp.status_code != 200:
-            error = resp.json().get("detail", resp.text)[:200]
+            try:
+                error = resp.json().get("detail", resp.text)[:200]
+            except (ValueError, KeyError):
+                error = resp.text[:200]
             result.errors.append(f"TVB simulation failed: {error}")
             logger.error(f"[{subject_id}] TVB error: {error}")
             return result

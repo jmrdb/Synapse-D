@@ -71,6 +71,10 @@ def simulate(req: SimulationRequest):
             raise ValueError(f"Weight matrix must be square, got {weights.shape}")
         if n < 2:
             raise ValueError(f"Need at least 2 regions, got {n}")
+        if n > 200:
+            raise ValueError(f"Max 200 regions supported, got {n}")
+        if weights.max() == 0:
+            raise ValueError("All-zero connectivity matrix — no connections to simulate")
 
         # Normalize weights
         max_w = weights.max()
