@@ -233,7 +233,6 @@ def _section_normative(norm: dict) -> str:
             <span>ICV Normalized: {icv}</span>
             <span>Field Strength Corrected: {field}</span>
         </div>
-        <canvas id="normChart" height="200"></canvas>
     </div>
     """
 
@@ -344,7 +343,6 @@ def _section_ad_risk(ad: dict) -> str:
         </div>
         <h4 style="margin-top:20px">Biomarker Contributions</h4>
         <div class="z-chart">{contrib_html}</div>
-        <canvas id="adChart" height="200"></canvas>
         {f'<div class="recs"><h4>Clinical Recommendations</h4><ul>{recs_html}</ul></div>' if recs_html else ''}
     </div>
     """
@@ -480,35 +478,9 @@ def _get_css() -> str:
 def _get_chart_scripts(normative: dict, ad_risk: dict, wmh: dict, cmb: dict) -> str:
     scripts = []
 
-    # Normative z-score bar chart
-    scores = normative.get("scores", [])
-    if scores:
-        labels = json.dumps([s["metric"].replace("_", " ") for s in scores])
-        values = json.dumps([s["z_score"] for s in scores])
-        colors = json.dumps(["#22c55e" if abs(s["z_score"]) < 1 else "#eab308" if abs(s["z_score"]) < 2 else "#ef4444" for s in scores])
-        scripts.append(f"""
-        if (document.getElementById('normChart')) {{
-            new Chart(document.getElementById('normChart'), {{
-                type: 'bar',
-                data: {{
-                    labels: {labels},
-                    datasets: [{{ data: {values}, backgroundColor: {colors}, borderRadius: 4 }}]
-                }},
-                options: {{
-                    indexAxis: 'y',
-                    plugins: {{ legend: {{ display: false }} }},
-                    scales: {{
-                        x: {{ grid: {{ color: '#1e1e30' }}, ticks: {{ color: '#888' }},
-                               min: -4, max: 4 }},
-                        y: {{ grid: {{ display: false }}, ticks: {{ color: '#aaa' }} }}
-                    }}
-                }}
-            }});
-        }}""")
-
-    # CMB regional pie chart
+    # CMB regional doughnut chart (useful — shows spatial distribution)
     rc = cmb.get("regional_counts", {})
-    if any(rc.values()):
+    if any(v for v in rc.values() if isinstance(v, (int, float)) and v > 0):
         scripts.append(f"""
         if (document.getElementById('cmbChart')) {{
             new Chart(document.getElementById('cmbChart'), {{
@@ -520,31 +492,6 @@ def _get_chart_scripts(normative: dict, ad_risk: dict, wmh: dict, cmb: dict) -> 
                 }},
                 options: {{
                     plugins: {{ legend: {{ position: 'right', labels: {{ color: '#aaa' }} }} }}
-                }}
-            }});
-        }}""")
-
-    # AD Risk biomarker chart
-    contribs = ad_risk.get("biomarker_contributions", [])
-    if contribs:
-        labels = json.dumps([c["biomarker"] for c in contribs])
-        values = json.dumps([c["weighted_contribution"] for c in contribs])
-        colors = json.dumps(["#ef4444" if c["weighted_contribution"] > 10 else "#eab308" if c["weighted_contribution"] > 5 else "#22c55e" for c in contribs])
-        scripts.append(f"""
-        if (document.getElementById('adChart')) {{
-            new Chart(document.getElementById('adChart'), {{
-                type: 'bar',
-                data: {{
-                    labels: {labels},
-                    datasets: [{{ data: {values}, backgroundColor: {colors}, borderRadius: 4 }}]
-                }},
-                options: {{
-                    indexAxis: 'y',
-                    plugins: {{ legend: {{ display: false }} }},
-                    scales: {{
-                        x: {{ grid: {{ color: '#1e1e30' }}, ticks: {{ color: '#888' }} }},
-                        y: {{ grid: {{ display: false }}, ticks: {{ color: '#aaa' }} }}
-                    }}
                 }}
             }});
         }}""")
