@@ -200,6 +200,7 @@ def _section_brain_age(ba: dict, morpho: dict) -> str:
                 <div class="metric-value green">{thickness if isinstance(thickness, str) else f'{thickness:.3f}'}<span class="unit">mm</span></div>
             </div>
         </div>
+        {_interpret_brain_age(age, gap, vol, hippo, thickness)}
     </div>
     """
 
@@ -238,6 +239,7 @@ def _section_normative(norm: dict) -> str:
             <span>ICV Normalized: {icv}</span>
             <span>Field Strength Corrected: {field}</span>
         </div>
+        {_interpret_normative(scores)}
     </div>
     """
 
@@ -275,6 +277,7 @@ def _section_wmh(wmh: dict) -> str:
             </div>
         </div>
         {f'<div class="regional-box"><h4>Regional Distribution</h4>{reg_html}</div>' if reg_html else ''}
+        {_interpret_wmh(vol, faz, cnt)}
     </div>
     """
 
@@ -309,6 +312,7 @@ def _section_cmb(cmb: dict) -> str:
         </div>
         {f'<div class="clinical-note">{_esc(sig)}</div>' if sig else ''}
         <canvas id="cmbChart" height="150"></canvas>
+        {_interpret_cmb_section(cnt, mars, rc)}
     </div>
     """
 
@@ -459,6 +463,7 @@ def _section_simulation(sim: dict, connectome: dict) -> str:
                 <span>1 (최대)</span>
             </div>
         </div>
+        {_interpret_simulation(sc_fc, fc_corr, n)}
     </div>
 
     <script>
@@ -492,6 +497,121 @@ def _section_simulation(sim: dict, connectome: dict) -> str:
     }})();
     </script>
     """
+
+
+def _interpret_brain_age(age: float, gap: float | None, vol: object, hippo: object, thickness: object) -> str:
+    parts = []
+    if gap is not None:
+        if gap < -3:
+            parts.append(f"<p><strong>Brain Age Gap {gap:+.1f}년</strong>: 실제 나이보다 뇌가 <span class='highlight-good'>젊게</span> 평가되었습니다. "
+                         f"뇌 구조가 동일 연령 대비 잘 보존되어 있음을 시사합니다.</p>")
+        elif gap > 3:
+            parts.append(f"<p><strong>Brain Age Gap {gap:+.1f}년</strong>: 실제 나이보다 뇌가 <span class='highlight-bad'>노화</span>된 것으로 평가되었습니다. "
+                         f"뇌 위축이 동일 연령 대비 빠르게 진행되고 있을 수 있으며, 추적 관찰이 권장됩니다.</p>")
+        else:
+            parts.append(f"<p><strong>Brain Age Gap {gap:+.1f}년</strong>: <span class='highlight-good'>정상 범위</span>입니다. "
+                         f"뇌 구조가 연령에 맞게 유지되고 있습니다.</p>")
+
+    if isinstance(vol, (int, float)) and vol > 0:
+        parts.append(f"<p><strong>뇌 부피 {vol:.0f} cm³</strong>: 전체 뇌 부피는 성별, 나이, 두개내용적(ICV)에 따라 달라지며, "
+                     f"규범 비교(아래)에서 동일 집단 대비 위치를 확인하세요.</p>")
+
+    if not parts:
+        return ""
+    return f'<div class="interpretation">{"".join(parts)}</div>'
+
+
+def _interpret_normative(scores: list) -> str:
+    if not scores:
+        return ""
+    parts = ["<p><strong>규범 비교 해석:</strong> 각 지표의 z-score는 동일 연령/성별 집단의 평균(0)으로부터 얼마나 떨어져 있는지를 나타냅니다. "
+             "±1 이내는 정상, ±2 이내는 경미한 편차, ±2 초과는 유의한 편차입니다.</p>"]
+
+    for s in scores:
+        z = s["z_score"]
+        name = s["metric"].replace("_", " ")
+        if abs(z) < 1:
+            parts.append(f"<p>• <strong>{name}</strong> (z={z:+.2f}): <span class='highlight-good'>정상 범위</span> — 동일 연령 평균과 유사합니다.</p>")
+        elif abs(z) < 2:
+            direction = "높" if z > 0 else "낮"
+            parts.append(f"<p>• <strong>{name}</strong> (z={z:+.2f}): <span class='highlight-warn'>경미한 편차</span> — 평균보다 다소 {direction}습니다. 추적 관찰을 권장합니다.</p>")
+        else:
+            direction = "높" if z > 0 else "낮"
+            parts.append(f"<p>• <strong>{name}</strong> (z={z:+.2f}): <span class='highlight-bad'>유의한 편차</span> — 평균보다 현저히 {direction}습니다. 전문의 상담을 권장합니다.</p>")
+
+    return f'<div class="interpretation">{"".join(parts)}</div>'
+
+
+def _interpret_wmh(vol: float, faz: int, cnt: int) -> str:
+    parts = []
+    if faz == 0:
+        parts.append("<p><strong>Fazekas 0</strong>: <span class='highlight-good'>백질 고신호 병변이 관찰되지 않거나 최소</span>입니다. 뇌소혈관질환의 영상학적 증거가 없습니다.</p>")
+    elif faz == 1:
+        parts.append(f"<p><strong>Fazekas 1 ({vol:.1f}mL)</strong>: <span class='highlight-good'>경미한 점상(punctate) 병변</span>이 관찰됩니다. "
+                     f"노화에 따른 정상적 변화일 수 있으나, 혈압/당뇨 등 혈관 위험인자 관리를 권장합니다.</p>")
+    elif faz == 2:
+        parts.append(f"<p><strong>Fazekas 2 ({vol:.1f}mL)</strong>: <span class='highlight-warn'>병변이 합쳐지기 시작</span>하는 단계입니다. "
+                     f"뇌소혈관질환(CSVD) 진행을 시사하며, 인지기능 저하와 연관될 수 있습니다. "
+                     f"혈관 위험인자(고혈압, 당뇨, 이상지질혈증) 적극 관리 및 6-12개월 추적 MRI를 권장합니다.</p>")
+    else:
+        parts.append(f"<p><strong>Fazekas 3 ({vol:.1f}mL)</strong>: <span class='highlight-bad'>대규모 융합 병변</span>이 관찰됩니다. "
+                     f"진행된 뇌소혈관질환을 나타내며, 혈관성 치매의 위험 인자입니다. "
+                     f"신경과 전문의 상담 및 종합적인 혈관 위험인자 평가를 권장합니다.</p>")
+
+    if cnt > 100:
+        parts.append(f"<p>병변 수 {cnt}개는 자동 분할의 결과이며, 실제 임상적 유의성은 총 부피(mL)와 Fazekas 등급으로 판단합니다.</p>")
+
+    return f'<div class="interpretation">{"".join(parts)}</div>'
+
+
+def _interpret_cmb_section(cnt: int, mars: str, rc: dict) -> str:
+    if cnt == 0:
+        return '<div class="interpretation"><p><span class="highlight-good">미세출혈이 검출되지 않았습니다.</span> 뇌출혈 관련 소혈관질환의 영상학적 증거가 없습니다.</p></div>'
+
+    parts = []
+    if cnt <= 2:
+        parts.append(f"<p>미세출혈 <strong>{cnt}개</strong> 검출: <span class='highlight-good'>경미한 수준</span>입니다. 임상적 의미는 제한적이나, 항응고제 사용 시 주의가 필요합니다.</p>")
+    elif cnt <= 10:
+        parts.append(f"<p>미세출혈 <strong>{cnt}개</strong> 검출: <span class='highlight-warn'>중등도</span> 수준입니다. 뇌소혈관질환 진행을 시사합니다.</p>")
+    else:
+        parts.append(f"<p>미세출혈 <strong>{cnt}개</strong> 검출: <span class='highlight-bad'>다발성</span>으로 진행된 뇌소혈관질환을 시사합니다.</p>")
+
+    if mars == "lobar_only":
+        parts.append("<p><strong>MARS 분류: 엽성(lobar)</strong> — 피질/피질하 영역에 국한된 분포로, <span class='highlight-warn'>뇌아밀로이드혈관병(CAA)</span>을 시사합니다. "
+                     "CAA는 알츠하이머병의 위험 인자로 알려져 있습니다.</p>")
+    elif mars == "deep_or_infratentorial":
+        parts.append("<p><strong>MARS 분류: 심부/천막하</strong> — 기저핵, 시상, 뇌간 영역의 분포로, <span class='highlight-warn'>고혈압성 소혈관병</span>을 시사합니다. "
+                     "혈압 관리가 가장 중요한 치료 전략입니다.</p>")
+    elif mars == "mixed":
+        parts.append("<p><strong>MARS 분류: 혼합형</strong> — 엽성과 심부 미세출혈이 동시에 관찰되어 <span class='highlight-bad'>복합 소혈관질환</span>을 시사합니다. "
+                     "CAA와 고혈압성 혈관병이 공존할 수 있으며, 종합적인 평가가 필요합니다.</p>")
+
+    return f'<div class="interpretation">{"".join(parts)}</div>'
+
+
+def _interpret_simulation(sc_fc: float, fc_corr: float, n: int) -> str:
+    parts = []
+    parts.append(f"<p><strong>뇌 시뮬레이션 해석:</strong> 환자의 MRI에서 추출한 구조적 연결체(SC, 좌측 히트맵)를 기반으로 "
+                 f"TVB 신경질량모델 시뮬레이션을 실행하여 기능적 연결체(FC, 우측 히트맵)를 예측했습니다.</p>")
+
+    if sc_fc > 0.3:
+        parts.append(f"<p><strong>SC-FC 상관 r={sc_fc:.3f}</strong>: <span class='highlight-good'>높은 구조-기능 일치</span> — "
+                     f"뇌의 구조적 배선이 기능적 활동 패턴을 잘 예측합니다. 이는 정상적인 뇌 네트워크 조직을 시사합니다.</p>")
+    elif sc_fc > 0.1:
+        parts.append(f"<p><strong>SC-FC 상관 r={sc_fc:.3f}</strong>: <span class='highlight-warn'>중간 수준의 구조-기능 일치</span> — "
+                     f"구조적 배선과 기능적 활동 간에 일정한 관계가 관찰되나, 간접 경로나 신경가소성에 의한 변동이 있습니다.</p>")
+    else:
+        parts.append(f"<p><strong>SC-FC 상관 r={sc_fc:.3f}</strong>: <span class='highlight-warn'>낮은 구조-기능 일치</span> — "
+                     f"구조적 연결만으로는 기능적 활동을 충분히 설명하지 못합니다. 이는 합성 연결체 사용, 간접 경로, "
+                     f"또는 신경병리학적 변화에 의한 것일 수 있습니다.</p>")
+
+    parts.append(f"<p><strong>FC 평균 상관 {fc_corr:.3f}</strong>: {n}개 뇌 영역 간 시뮬레이션된 동기화 수준입니다. "
+                 f"이 값이 높을수록 뇌 영역 간 기능적 연결이 강합니다.</p>")
+
+    parts.append("<p><em>참고: 히트맵에서 밝은(빨간) 색은 강한 연결, 어두운(파란) 색은 약한 연결을 나타냅니다. "
+                 "SC와 FC의 패턴 유사성이 높을수록 구조가 기능을 잘 예측하는 것입니다.</em></p>")
+
+    return f'<div class="interpretation">{"".join(parts)}</div>'
 
 
 def _section_disclaimer() -> str:
@@ -586,6 +706,15 @@ def _get_css() -> str:
     .disclaimer p { font-size: 11px; color: #666; margin: 4px 0; line-height: 1.5; }
 
     canvas { margin-top: 16px; background: #12121e; border-radius: 8px; padding: 10px; }
+
+    .interpretation { background: #0d0d1a; border-left: 3px solid #3b82f6;
+                       border-radius: 0 8px 8px 0; padding: 14px 18px;
+                       margin-top: 16px; line-height: 1.7; }
+    .interpretation p { font-size: 13px; color: #bbb; margin: 4px 0; }
+    .interpretation strong { color: #e5e5e5; }
+    .interpretation .highlight-good { color: #22c55e; font-weight: 600; }
+    .interpretation .highlight-warn { color: #eab308; font-weight: 600; }
+    .interpretation .highlight-bad { color: #ef4444; font-weight: 600; }
 
     .sim-comparison { display: flex; align-items: center; justify-content: center;
                       gap: 20px; margin: 24px 0; flex-wrap: wrap; }
