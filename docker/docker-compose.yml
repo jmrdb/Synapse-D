@@ -26,7 +26,7 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    command: celery -A synapse_d.api.tasks:celery_app worker --loglevel=info --concurrency=2
+    command: celery -A synapse_d.api.tasks:celery_app worker --loglevel=info --concurrency=1
     volumes:
       - ../data:/app/data
       - ../src:/app/src

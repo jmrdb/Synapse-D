@@ -229,7 +229,7 @@ class PreprocessingPipeline:
             "--disable_tta",
             "--save_bet_mask",
         ]
-        ok, err = self._run_command(cmd, subject_id, "HD-BET", timeout=600)
+        ok, err = self._run_command(cmd, subject_id, "HD-BET", timeout=1800)
         if ok:
             # HD-BET v2 saves mask as {output}_bet.nii.gz (not _mask)
             for suffix in ["_bet.nii.gz", "_mask.nii.gz"]:

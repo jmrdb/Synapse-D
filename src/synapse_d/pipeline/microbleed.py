@@ -179,7 +179,7 @@ def _extract_brain_swi(
             "hd-bet", "-i", str(swi_path), "-o", str(brain_path),
             "-device", device, "--disable_tta", "--save_bet_mask",
         ]
-        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=1800)
         brain_img = nib.load(str(brain_path))
         brain_data = np.asarray(brain_img.dataobj, dtype=np.float32)
 

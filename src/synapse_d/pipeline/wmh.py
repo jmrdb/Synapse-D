@@ -176,7 +176,7 @@ def _extract_brain_flair(
             "hd-bet", "-i", str(flair_path), "-o", str(brain_path),
             "-device", device, "--disable_tta", "--save_bet_mask",
         ]
-        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=600)
+        subprocess.run(cmd, check=True, capture_output=True, text=True, timeout=1800)
         # HD-BET v2 saves mask as _bet.nii.gz
         for suffix in ["_bet.nii.gz", "_mask.nii.gz"]:
             candidate = brain_path.with_name(
