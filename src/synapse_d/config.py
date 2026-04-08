@@ -51,6 +51,9 @@ class Settings(BaseSettings):
     # GPU
     device: str = "cpu"
 
+    # TVB Worker (GPLv3 isolated container)
+    tvb_worker_url: str = "http://tvb:8001"
+
     model_config = {"env_prefix": "SYNAPSE_"}
 
 

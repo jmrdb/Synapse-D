@@ -246,7 +246,21 @@ def run_pipeline(
     except Exception as e:
         logger.warning(f"Connectome generation failed: {e}")
 
-    # Step 6: Save longitudinal timepoint (auto-accumulate for time series)
+    # Step 6: Brain simulation (TVB) — if connectome is available
+    if result.get("connectome", {}).get("success"):
+        try:
+            from synapse_d.pipeline.simulation import run_brain_simulation
+
+            sim_result = run_brain_simulation(
+                connectivity_matrix=connectome.connectivity_matrix,
+                subject_id=preproc_result.subject_id,
+            )
+            if sim_result.success:
+                result["simulation"] = sim_result.to_dict()
+        except Exception as e:
+            logger.warning(f"Brain simulation failed: {e}")
+
+    # Step 7: Save longitudinal timepoint (auto-accumulate for time series)
     try:
         from synapse_d.models.longitudinal import save_timepoint
 

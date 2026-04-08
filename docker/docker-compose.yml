@@ -18,6 +18,7 @@ services:
       - SYNAPSE_CORS_ORIGINS=["http://localhost:3000"]
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
       - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - SYNAPSE_TVB_WORKER_URL=http://tvb:8001
     depends_on:
       - redis
 
@@ -35,6 +36,7 @@ services:
       - SYNAPSE_DEVICE=cpu
       - SYNAPSE_CELERY_BROKER_URL=redis://redis:6379/0
       - SYNAPSE_CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - SYNAPSE_TVB_WORKER_URL=http://tvb:8001
     depends_on:
       - redis
 
@@ -63,6 +65,16 @@ services:
               count: 1
               capabilities: [gpu]
     profiles: ["gpu"]
+
+  # TVB Brain Simulation Worker (GPLv3 — intentionally isolated)
+  # Runs TVB in a separate container to prevent GPL contamination.
+  # Communication: REST API only (POST /simulate)
+  tvb:
+    build:
+      context: ../tvb_worker
+      dockerfile: Dockerfile
+    ports:
+      - "8001:8001"
 
   # Redis (message broker + result backend for Celery job state)
   redis:
