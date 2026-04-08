@@ -389,14 +389,44 @@ async def get_subject_report(subject_id: str):
     _validate_subject_id(subject_id)
 
     import json
-    result_file = settings.output_dir / subject_id / "latest_result.json"
-    if not result_file.exists():
-        raise HTTPException(status_code=404, detail=f"No analysis results for {subject_id}")
 
-    try:
-        result = json.loads(result_file.read_text())
-    except (json.JSONDecodeError, OSError) as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read results: {e}")
+    result = {}
+
+    # Try latest_result.json first (full analysis)
+    result_file = settings.output_dir / subject_id / "latest_result.json"
+    if result_file.exists():
+        try:
+            result = json.loads(result_file.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Fallback: build minimal result from longitudinal data
+    if not result:
+        from synapse_d.models.longitudinal import _load_record
+        timepoints = _load_record(subject_id)
+        if not timepoints:
+            raise HTTPException(status_code=404, detail=f"No analysis results for {subject_id}")
+
+        latest = timepoints[-1]
+        result = {
+            "subject_id": subject_id,
+            "preprocessing": {
+                "scanner_info": latest.metadata.get("scanner", {}),
+                "resolution": latest.metadata.get("resolution", {}),
+                "morphometrics": {},
+            },
+        }
+        if latest.brain_age is not None:
+            result["brain_age"] = {
+                "predicted_age": latest.brain_age,
+                "brain_age_gap": latest.brain_age_gap,
+            }
+        if latest.brain_volume_cm3:
+            result["preprocessing"]["morphometrics"]["total_brain_volume_cm3"] = latest.brain_volume_cm3
+        if latest.hippocampus_mm3:
+            result["preprocessing"]["morphometrics"]["hippocampus_total_mm3"] = latest.hippocampus_mm3
+        if latest.cortical_thickness_mm:
+            result["preprocessing"]["morphometrics"]["mean_cortical_thickness_mm"] = latest.cortical_thickness_mm
 
     from synapse_d.report.generator import generate_report
     from fastapi.responses import HTMLResponse

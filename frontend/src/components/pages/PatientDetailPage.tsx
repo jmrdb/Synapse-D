@@ -90,14 +90,29 @@ export default function PatientDetailPage({ subjectId }: PatientDetailPageProps)
               {results.connectome?.success && <span className="badge badge-blue">Connectome</span>}
               {results.ad_risk && !("error" in results.ad_risk) && <span className="badge badge-blue">AD Risk</span>}
             </div>
-            <a
-              href={getReportUrl(subjectId)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-primary text-sm flex items-center gap-2"
-            >
-              📄 분석 리포트 보기
-            </a>
+            <div className="flex gap-2">
+              <a
+                href={getReportUrl(subjectId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary text-sm flex items-center gap-2"
+              >
+                📄 리포트
+              </a>
+              <a
+                href={getReportUrl(subjectId)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-sm flex items-center gap-2"
+                onClick={(e) => {
+                  e.preventDefault();
+                  const w = window.open(getReportUrl(subjectId), "_blank");
+                  if (w) setTimeout(() => w.print(), 2000);
+                }}
+              >
+                🖨️ PDF
+              </a>
+            </div>
           </div>
         </div>
       </div>
