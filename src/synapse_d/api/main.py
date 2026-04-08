@@ -379,6 +379,32 @@ async def get_subject_results(subject_id: str):
     return result
 
 
+@app.get("/api/v1/subject/{subject_id}/report")
+async def get_subject_report(subject_id: str):
+    """Generate and return an HTML analysis report for a subject.
+
+    Returns a self-contained HTML report with charts, metrics, and
+    clinical interpretation. Can be opened in browser or printed to PDF.
+    """
+    _validate_subject_id(subject_id)
+
+    import json
+    result_file = settings.output_dir / subject_id / "latest_result.json"
+    if not result_file.exists():
+        raise HTTPException(status_code=404, detail=f"No analysis results for {subject_id}")
+
+    try:
+        result = json.loads(result_file.read_text())
+    except (json.JSONDecodeError, OSError) as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read results: {e}")
+
+    from synapse_d.report.generator import generate_report
+    from fastapi.responses import HTMLResponse
+
+    html = generate_report(result, subject_id)
+    return HTMLResponse(content=html)
+
+
 @app.get("/api/v1/longitudinal/{subject_id}")
 async def get_longitudinal_data(subject_id: str):
     """Get longitudinal analysis data for a subject.

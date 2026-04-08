@@ -228,6 +228,10 @@ export async function getLongitudinal(subjectId: string): Promise<LongitudinalDa
   return res.json();
 }
 
+export function getReportUrl(subjectId: string): string {
+  return `${API_BASE}/subject/${subjectId}/report`;
+}
+
 export async function healthCheck(): Promise<{ status: string; version: string }> {
   const res = await fetch("/health");
   if (!res.ok) throw new Error(`Health check failed: ${res.statusText}`);

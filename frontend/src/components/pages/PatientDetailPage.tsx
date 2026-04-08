@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
-import { getLongitudinal, getSubjectResults, type LongitudinalData, type SubjectResults } from "@/lib/api";
+import { getLongitudinal, getSubjectResults, getReportUrl, type LongitudinalData, type SubjectResults } from "@/lib/api";
 import LongitudinalChart from "@/components/LongitudinalChart";
 import MorphometryCharts from "@/components/MorphometryCharts";
 
@@ -82,12 +82,22 @@ export default function PatientDetailPage({ subjectId }: PatientDetailPageProps)
               </span>
             </div>
           </div>
-          <div className="flex flex-wrap gap-1.5">
-            {results.brain_age && <span className="badge badge-blue">Brain Age</span>}
-            {results.wmh?.success && <span className="badge badge-blue">WMH</span>}
-            {results.microbleeds?.success && <span className="badge badge-blue">CMB</span>}
-            {results.connectome?.success && <span className="badge badge-blue">Connectome</span>}
-            {results.ad_risk && !("error" in results.ad_risk) && <span className="badge badge-blue">AD Risk</span>}
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex flex-wrap gap-1.5">
+              {results.brain_age && <span className="badge badge-blue">Brain Age</span>}
+              {results.wmh?.success && <span className="badge badge-blue">WMH</span>}
+              {results.microbleeds?.success && <span className="badge badge-blue">CMB</span>}
+              {results.connectome?.success && <span className="badge badge-blue">Connectome</span>}
+              {results.ad_risk && !("error" in results.ad_risk) && <span className="badge badge-blue">AD Risk</span>}
+            </div>
+            <a
+              href={getReportUrl(subjectId)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary text-sm flex items-center gap-2"
+            >
+              📄 분석 리포트 보기
+            </a>
           </div>
         </div>
       </div>
